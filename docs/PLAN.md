@@ -70,26 +70,26 @@ Goal: each check = one function, one number, one verdict. No LLM.
 
 ## Step 5: Report (`copilot/report.py`)
 
-- [ ] `Investigation` dataclass: event + driver results + figures
-- [ ] `render_facts(inv) -> str`: deterministic text, all numbers, no LLM
-- [ ] `copilot/llm.py`: Pydantic AI `Agent(COPILOT_MODEL, output_type=Narrative)` where
+- [x] `Investigation` dataclass: event + driver results + figures
+- [x] `render_facts(inv) -> str`: deterministic text, all numbers, no LLM
+- [x] `copilot/llm.py`: Pydantic AI `Agent(COPILOT_MODEL, output_type=Narrative)` where
       `Narrative` has `summary`, `facts: list[str]`, `hypotheses: list[str]`, `insufficient: list[str]`.
       Model never sees raw series. Fallback to `render_facts` if no provider key
-- [ ] Test: `TestModel` + `ALLOW_MODEL_REQUESTS = False`; assert every number in narrative exists
+- [x] Test: `TestModel` + `ALLOW_MODEL_REQUESTS = False`; assert every number in narrative exists
       in facts (no invented numbers)
-- [ ] Commit
+- [x] Commit
 
 ## Step 6: Interfaces
 
-- [ ] `cli.py`: `investigate <date|datetime>` and `scan <start> <end>`; prints report, saves PNGs
-- [ ] `app.py` (Streamlit, <150 lines): date picker or "scan last 30 days", event list,
+- [x] `cli.py`: `investigate <date|datetime>` and `scan <start> <end>`; prints report, saves PNGs
+- [x] `app.py` (Streamlit, <150 lines): date picker or "scan last 30 days", event list,
       charts, report, facts/hypotheses split visually
 - [ ] Run both demo events end to end, screenshot for README
-- [ ] Commit
+- [x] Commit
 
 ## Step 7: README + eval
 
-- [ ] `README.md` max 2 pages: first user, use case, left out, data + signals, plain code vs
+- [x] `README.md` max 2 pages: first user, use case, left out, data + signals, plain code vs
       LLM, how to measure improvement, test cases, top 3 next steps
 - [ ] `tests/test_cases.md` or pytest: the two demo events as regression tests
       (detect finds them, expected drivers rank top)
