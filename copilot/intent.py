@@ -20,7 +20,8 @@ from copilot.trace import Guard, LlmCall, now_iso, record, timed
 
 log = logging.getLogger(__name__)
 
-MAX_SCAN_DAYS = 60
+MAX_SCAN_DAYS = 60  # for ranges that need a network fetch
+MAX_CACHED_SCAN_DAYS = 366  # every month already on disk: reading parquet is cheap
 HISTORY_DAYS = 30  # same-hour baseline needs this much history before any requested day
 TRANSCRIPT_LINES = 6
 FALLBACK_TEXT = (
@@ -78,6 +79,7 @@ class Context:
     last_hour: datetime | None = None
     last_range: tuple[date, date] | None = None
     transcript: tuple[tuple[str, str], ...] = ()  # (role, text), most recent last
+    cached_months: frozenset[str] = frozenset()  # "YYYYMM" with a price file on disk
 
 
 INSTRUCTIONS = """You route messages for an energy-market copilot that explains abnormal hours
@@ -104,9 +106,24 @@ def build_intent_agent(model: str) -> Agent[None, Intent]:
     )
 
 
+def cached_months(cache_dir: Path) -> frozenset[str]:
+    """Months ("YYYYMM") that have a cached FI price file."""
+    return frozenset(p.stem.rsplit("_", 1)[-1] for p in cache_dir.glob("entsoe_price_FI_*.parquet"))
+
+
+def months_between(start: date, end: date) -> list[str]:
+    """Every "YYYYMM" from start to end inclusive."""
+    out: list[str] = []
+    year, month = start.year, start.month
+    while (year, month) <= (end.year, end.month):
+        out.append(f"{year:04d}{month:02d}")
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return out
+
+
 def data_reach(cache_dir: Path, today: date) -> tuple[date, date]:
     """First and last calendar day with cached FI price data, from the month files on disk."""
-    months = sorted(p.stem.rsplit("_", 1)[-1] for p in cache_dir.glob("entsoe_price_FI_*.parquet"))
+    months = sorted(cached_months(cache_dir))
     if not months:
         return today, today
     first = date(int(months[0][:4]), int(months[0][4:]), 1)
@@ -166,9 +183,16 @@ def guard_intent(intent: Intent, ctx: Context, *, max_days: int = MAX_SCAN_DAYS)
         case Scan(start=start, end=end):
             if end < start:
                 start, end = end, start
-            if (end - start).days > max_days:
+            span = (end - start).days
+            needed = months_between(start - timedelta(days=HISTORY_DAYS), end)
+            missing = [m for m in needed if m not in ctx.cached_months]
+            if span > MAX_CACHED_SCAN_DAYS:
+                return Reply(text="I can scan at most one year at a time. Narrow the range.")
+            if missing and span > max_days:
                 return Reply(
-                    text=f"I can scan at most {max_days} days at a time. Narrow the range."
+                    text=f"That range needs {len(missing)} month(s) not cached yet, so I can "
+                    f"scan at most {max_days} days of it at a time. Narrow the range, or warm "
+                    "the cache first: uv run python scripts/warm_cache.py <start> <end>."
                 )
             if start < earliest or end > ctx.reach_end:
                 return Reply(

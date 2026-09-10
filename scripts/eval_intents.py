@@ -14,7 +14,15 @@ from datetime import date, datetime
 from pathlib import Path
 
 from copilot.config import load_settings
-from copilot.intent import Context, Investigate, Scan, data_reach, guard_intent, parse_intent
+from copilot.intent import (
+    Context,
+    Investigate,
+    Scan,
+    cached_months,
+    data_reach,
+    guard_intent,
+    parse_intent,
+)
 from copilot.timeutil import helsinki
 from copilot.trace import last_call
 
@@ -23,7 +31,7 @@ FIXTURE = ROOT / "tests" / "fixtures" / "intents.jsonl"
 TODAY = date(2026, 9, 10)  # fixed so relative-date cases are stable
 
 
-def context(case: dict, reach: tuple[date, date]) -> Context:
+def context(case: dict, reach: tuple[date, date], months: frozenset[str]) -> Context:
     last_hour = case.get("last_hour")
     last_range = case.get("last_range")
     return Context(
@@ -34,6 +42,7 @@ def context(case: dict, reach: tuple[date, date]) -> Context:
         last_range=(date.fromisoformat(last_range[0]), date.fromisoformat(last_range[1]))
         if last_range
         else None,
+        cached_months=months,
     )
 
 
@@ -61,14 +70,17 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = load_settings()
     reach = data_reach(settings.cache_dir, TODAY)
+    months = cached_months(settings.cache_dir)
     cases = [json.loads(line) for line in args.fixture.read_text().splitlines() if line.strip()]
     per_class: Counter[str] = Counter()
     hits: Counter[str] = Counter()
     latencies: list[int] = []
     print(f"model: {settings.copilot_model}   cases: {len(cases)}\n")
     for case in cases:
-        intent = parse_intent(case["text"], context(case, reach), model=settings.copilot_model)
-        intent = guard_intent(intent, context(case, reach))
+        intent = parse_intent(
+            case["text"], context(case, reach, months), model=settings.copilot_model
+        )
+        intent = guard_intent(intent, context(case, reach, months))
         ok, got = check(case, intent)
         call = last_call()
         if call is not None:

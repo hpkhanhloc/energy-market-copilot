@@ -178,3 +178,36 @@ def test_guard_passes_ask_and_reply(ctx: Context) -> None:
     reply = Reply(text="r")
     assert guard_intent(ask, ctx) is ask
     assert guard_intent(reply, ctx) is reply
+
+
+def test_months_between() -> None:
+    from copilot.intent import months_between
+
+    assert months_between(date(2023, 11, 15), date(2024, 2, 1)) == [
+        "202311",
+        "202312",
+        "202401",
+        "202402",
+    ]
+    assert months_between(date(2024, 5, 1), date(2024, 5, 31)) == ["202405"]
+
+
+def test_guard_scan_cap_depends_on_cache(ctx: Context) -> None:
+    from dataclasses import replace
+
+    from copilot.intent import months_between
+
+    year = Scan(start=date(2025, 1, 1), end=date(2025, 12, 1))
+    # nothing cached: long ranges refused with a warm-cache hint
+    refused = guard_intent(year, ctx)
+    assert isinstance(refused, Reply)
+    assert "warm_cache" in refused.text
+    # every needed month cached (incl. 30 baseline days before): allowed
+    warm = replace(
+        ctx, cached_months=frozenset(months_between(date(2024, 12, 1), date(2025, 12, 31)))
+    )
+    assert guard_intent(year, warm) == year
+    # but never more than a year
+    too_long = guard_intent(Scan(start=date(2025, 1, 1), end=date(2026, 2, 1)), warm)
+    assert isinstance(too_long, Reply)
+    assert "one year" in too_long.text

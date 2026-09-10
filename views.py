@@ -23,6 +23,7 @@ from copilot.intent import (
     Investigate,
     Reply,
     Scan,
+    cached_months,
     data_reach,
     guard_intent,
     parse_intent,
@@ -128,6 +129,7 @@ def context(settings: Settings) -> Context:
         last_hour=inv["when"].to_pydatetime() if inv else None,
         last_range=(sc["start"], sc["end"]) if sc else None,
         transcript=transcript(),
+        cached_months=cached_months(settings.cache_dir),
     )
 
 

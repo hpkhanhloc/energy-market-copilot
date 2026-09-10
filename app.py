@@ -41,6 +41,7 @@ with st.sidebar:
         "Off: a fixed template. Numbers, verdicts and charts do not change either way.",
     )
     st.caption(f"Model: `{settings.copilot_model}` (COPILOT_MODEL in .env)")
+    st.button("Clear chat", on_click=clear_chat, use_container_width=True)
     with st.expander("Developer: last LLM call"):
         call = last_call()
         if call is None:
@@ -65,11 +66,7 @@ st.caption(
     "Finnish day-ahead price. Ask what happened, get the numbers, the charts, and which drivers "
     "the evidence supports. December 2023 and January 2024 are ready offline."
 )
-chips, clear = st.columns([5, 1], vertical_alignment="center")
-chips.pills(
-    "Try one", list(STARTERS), key="chip", on_change=chip_picked, label_visibility="collapsed"
-)
-clear.button("Clear chat", on_click=clear_chat, use_container_width=True)
+st.pills("Try one", list(STARTERS), key="chip", on_change=chip_picked, label_visibility="collapsed")
 
 history = turns()
 last_inv = max((i for i, t in enumerate(history) if t["kind"] == "investigation"), default=-1)
