@@ -35,7 +35,7 @@ def wind_forecast(frame: MarketFrame, event: Event) -> DriverResult:
         title="Wind forecast (day-ahead)",
         unit="MW",
         bullish_when="lower",
-        hypothesis="Low forecast wind for these hours pushed the day-ahead price up.",
+        hypothesis="Low forecast wind for these hours (less cheap supply in the day-ahead auction).",
     )
 
 
@@ -49,7 +49,7 @@ def wind_actual(frame: MarketFrame, event: Event) -> DriverResult:
         title="Wind generation (actual)",
         unit="MW",
         bullish_when="lower",
-        hypothesis="Actual wind was low; relevant for imbalance, and confirms the forecast.",
+        hypothesis="Actual wind was low (mainly an imbalance-market signal; cross-checks the forecast).",
         columns=(column, "wind_fc"),
     )
 
@@ -64,7 +64,7 @@ def nuclear(frame: MarketFrame, event: Event) -> DriverResult:
         title="Nuclear generation",
         unit="MW",
         bullish_when="lower",
-        hypothesis="A nuclear unit was out or ramped down, removing cheap baseload.",
+        hypothesis="A nuclear unit out or ramped down (less cheap baseload available).",
     )
 
 
@@ -77,7 +77,7 @@ def load(frame: MarketFrame, event: Event) -> DriverResult:
         title="Consumption (actual load)",
         unit="MW",
         bullish_when="higher",
-        hypothesis="Demand was unusually high (e.g. a cold snap), pulling in expensive plants.",
+        hypothesis="Unusually high demand, e.g. a cold snap (more expensive plants needed).",
         columns=("load", "load_fc"),
     )
 
@@ -95,7 +95,7 @@ def imports(frame: MarketFrame, event: Event) -> DriverResult:
             title="Imports from Sweden",
             unit="MW",
             verdict=Verdict.INSUFFICIENT,
-            hypothesis="Less power came in from Sweden (capacity limits or Sweden was short too).",
+            hypothesis="Less import from Sweden (capacity limits, or Sweden short too).",
             detail="Imports: no cross-border data.",
             columns=(),
         )
@@ -108,7 +108,7 @@ def imports(frame: MarketFrame, event: Event) -> DriverResult:
         title="Imports from Sweden (SE1+SE3)",
         unit="MW",
         bullish_when="lower",
-        hypothesis="Less power came in from Sweden (capacity limits or Sweden was short too).",
+        hypothesis="Less import from Sweden (capacity limits, or Sweden short too).",
         columns=tuple(
             c for c in ("import_se1", "import_se3", "import_ee", "import_no4") if frame.has(c)
         ),
@@ -146,7 +146,7 @@ def neighbour_prices(frame: MarketFrame, event: Event) -> DriverResult:
             title="Neighbouring prices",
             unit="EUR/MWh",
             verdict=Verdict.INSUFFICIENT,
-            hypothesis="The move came from the wider Nordic/Baltic market, not Finland alone.",
+            hypothesis="A regional move across the Nordic/Baltic market rather than Finland alone.",
             detail="Neighbouring prices: no data.",
             columns=tuple(NEIGHBOUR_PRICES),
         )
@@ -166,7 +166,7 @@ def neighbour_prices(frame: MarketFrame, event: Event) -> DriverResult:
         title="Neighbouring prices",
         unit="EUR/MWh",
         verdict=verdict,
-        hypothesis="The move came from the wider Nordic/Baltic market, not Finland alone.",
+        hypothesis="A regional move across the Nordic/Baltic market rather than Finland alone.",
         value=None,
         baseline=None,
         z=float(pd.Series(zs).mean()),
@@ -188,7 +188,7 @@ def residual_load(frame: MarketFrame, event: Event) -> DriverResult:
             title="Residual load",
             unit="MW",
             verdict=Verdict.INSUFFICIENT,
-            hypothesis="The gap left for flexible plants and imports was unusually large.",
+            hypothesis="An unusually large gap for flexible plants and imports to fill.",
             detail="Residual load: needs load, wind and nuclear.",
             columns=needed,
         )
@@ -203,7 +203,7 @@ def residual_load(frame: MarketFrame, event: Event) -> DriverResult:
         title="Residual load (load - wind - nuclear)",
         unit="MW",
         bullish_when="higher",
-        hypothesis="The gap left for flexible plants and imports was unusually large.",
+        hypothesis="An unusually large gap for flexible plants and imports to fill.",
         columns=("residual_load",),
     )
 

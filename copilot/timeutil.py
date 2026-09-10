@@ -8,7 +8,11 @@ def ts(value: object, tz: str = "UTC") -> pd.Timestamp:
     result = pd.Timestamp(value)  # ty: ignore[invalid-argument-type]
     if not isinstance(result, pd.Timestamp):
         raise ValueError(f"not a timestamp: {value!r}")
-    return result.tz_localize(tz) if result.tzinfo is None else result
+    if result.tzinfo is not None:
+        return result
+    # DST policy for naive local input: a repeated autumn hour takes its first (summer-time)
+    # occurrence, a skipped spring hour is shifted forward. Documented, not raised.
+    return result.tz_localize(tz, ambiguous=True, nonexistent="shift_forward")
 
 
 def helsinki(value: object) -> pd.Timestamp:

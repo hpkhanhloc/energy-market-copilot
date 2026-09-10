@@ -44,7 +44,9 @@ class FakeFingrid:
 
 
 def test_frame_joins_and_reports_missing(tmp_path: Path) -> None:
-    frame = build_market_frame(START, END, entsoe=FakeEntsoe(), fingrid=FakeFingrid())
+    frame = build_market_frame(
+        START, END, entsoe=FakeEntsoe(), fingrid=FakeFingrid(), sleep=lambda _: None
+    )
 
     assert list(frame.data.index[:2]) == [ts("2024-01-04 22:00"), ts("2024-01-04 23:00")]
     assert len(frame.data) == 3
@@ -68,3 +70,28 @@ def test_frame_without_sources_is_empty_but_indexed() -> None:
     assert len(frame.data) == 3
     assert frame.data.columns.tolist() == []
     assert frame.missing == ()
+
+
+def test_safe_retries_transient_errors() -> None:
+    from copilot.data.frame import _safe
+
+    attempts: list[int] = []
+
+    def flaky() -> pd.Series:
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise RuntimeError("400 Bad Request")
+        return _hours([1.0], "x")
+
+    result = _safe(("x", flaky), sleep=lambda _: None)
+    assert result is not None
+    assert len(attempts) == 3
+
+
+def test_safe_gives_up() -> None:
+    from copilot.data.frame import _safe
+
+    def broken() -> pd.Series:
+        raise RuntimeError("nope")
+
+    assert _safe(("x", broken), sleep=lambda _: None) is None

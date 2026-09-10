@@ -92,7 +92,7 @@ def show_investigation(inv: Investigation, narrative: Narrative) -> None:
         with st.expander(
             f"{BADGE[result.verdict]} · {result.title}", expanded=result.verdict is Verdict.SUPPORTS
         ):
-            st.markdown(f"*Hypothesis:* {result.hypothesis}")
+            st.markdown(f"*Hypothesis tested:* {result.hypothesis}")
             st.markdown(result.detail)
             fig = figures.get(result.name)
             if fig is not None:

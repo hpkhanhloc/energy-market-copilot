@@ -1,6 +1,7 @@
 """Fingrid Open Data client: https://data.fingrid.fi/api (needs FINGRID_API_KEY)."""
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from enum import IntEnum
@@ -15,6 +16,7 @@ log = logging.getLogger(__name__)
 BASE_URL = "https://data.fingrid.fi/api"
 MIN_INTERVAL_S = 2.0  # Fingrid allows 1 request per 2 seconds
 PAGE_SIZE = 20_000
+MAX_ATTEMPTS = 4  # on HTTP 429
 
 
 class Dataset(IntEnum):
@@ -64,6 +66,7 @@ class FingridClient:
         self._sleep = sleep
         self._clock = clock
         self._last_call = float("-inf")
+        self._lock = threading.Lock()  # one throttle shared by every thread using this client
 
     def fetch(self, dataset: Dataset | int, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
         """Raw values for [start, end) as a float Series with a UTC DatetimeIndex."""
@@ -100,19 +103,21 @@ class FingridClient:
         return raw.resample("1h", label="left", closed="left").mean()
 
     def _get(self, url: str, params: dict) -> dict:
-        wait = MIN_INTERVAL_S - (self._clock() - self._last_call)
-        if wait > 0:
-            self._sleep(wait)
-        resp = self._session.get(url, params=params, headers=self._headers, timeout=60)
-        self._last_call = self._clock()
-        if resp.status_code == 429:
-            log.warning("fingrid rate limited, retrying once")
-            self._sleep(MIN_INTERVAL_S)
-            resp = self._session.get(url, params=params, headers=self._headers, timeout=60)
-            self._last_call = self._clock()
-        if resp.status_code != 200:
-            raise FingridError(f"HTTP {resp.status_code} for {url}: {resp.text[:200]}")
-        return resp.json()
+        with self._lock:
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                wait = MIN_INTERVAL_S - (self._clock() - self._last_call)
+                if wait > 0:
+                    self._sleep(wait)
+                resp = self._session.get(url, params=params, headers=self._headers, timeout=60)
+                self._last_call = self._clock()
+                if resp.status_code == 429 and attempt < MAX_ATTEMPTS:
+                    log.warning("fingrid rate limited (attempt %d), backing off", attempt)
+                    self._sleep(MIN_INTERVAL_S * attempt)
+                    continue
+                if resp.status_code != 200:
+                    raise FingridError(f"HTTP {resp.status_code} for {url}: {resp.text[:200]}")
+                return resp.json()
+        raise FingridError("unreachable")  # pragma: no cover
 
 
 def _requests_session() -> Any:

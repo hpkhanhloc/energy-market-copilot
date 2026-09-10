@@ -50,7 +50,7 @@ def test_fallback_narrative_separates_lists(investigation: Investigation) -> Non
     assert "1,896 EUR/MWh" in narrative.summary
     assert "not proof of cause" in narrative.summary
     assert narrative.hypotheses == [
-        "Low forecast wind for these hours pushed the day-ahead price up."
+        "Consistent with: Low forecast wind for these hours (less cheap supply in the day-ahead auction)."
     ]
     assert any("no data" in item or "no cross-border" in item for item in narrative.insufficient)
     assert unknown_numbers(narrative, render_facts(investigation)) == []
@@ -110,3 +110,27 @@ def test_narrate_falls_back_on_error(
     monkeypatch.setattr(agent, "run_sync", boom)
     narrative = narrate(investigation, model="test", agent=agent)
     assert "not proof of cause" in narrative.summary
+
+
+def test_render_facts_midnight_crossing_and_missing_baseline() -> None:
+    from copilot.detect import Event, EventKind
+
+    event = Event(
+        start=ts("2023-12-16 17:00"),
+        end=ts("2023-12-17 05:00"),
+        peak_time=ts("2023-12-17 00:00"),
+        peak_price=-1.0,
+        baseline_median=float("nan"),
+        z=float("nan"),
+        kind=EventKind.NEGATIVE,
+        hours=13,
+    )
+    frame = MarketFrame(data=pd.DataFrame(index=pd.date_range(event.start, event.end, freq="1h")))
+    inv = Investigation(
+        event=event, frame=frame, results=[], window_start=event.start, window_end=event.end
+    )
+    text = render_facts(inv)
+    assert "Window: 19:00 to Sun 17 Dec 07:00 (13 h" in text
+    assert "not enough history" in text
+    assert "nan" not in text
+    assert "nan" not in fallback_narrative(inv).summary

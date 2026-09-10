@@ -92,3 +92,10 @@ def test_custom_threshold() -> None:
     price.loc[ts("2024-01-04 12:00")] += 30.0
     lenient = DetectConfig(z_threshold=3.0, min_abs_deviation=20.0)
     assert len(find_events(price, lenient)) >= 1
+
+
+def test_event_at_nan_hour_raises_clear_error() -> None:
+    price = _series()
+    price.loc[ts("2024-01-05 12:00")] = float("nan")
+    with pytest.raises(ValueError, match="no price data"):
+        event_at(price, ts("2024-01-05 12:00"))

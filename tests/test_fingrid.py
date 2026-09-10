@@ -104,3 +104,21 @@ def test_naive_timestamp_rejected() -> None:
     client = FingridClient("key", session=FakeSession([]), sleep=lambda _: None, clock=lambda: 0.0)
     with pytest.raises(ValueError, match="tz-aware"):
         client.fetch(Dataset.WIND, pd.Timestamp("2024-01-05"), END)  # ty: ignore[invalid-argument-type]
+
+
+def test_retries_on_429_then_succeeds() -> None:
+    sleeps: list[float] = []
+    session = FakeSession(
+        [FakeResponse(429, {}, text="slow down"), _page([("2024-01-05T15:00:00.000Z", 1.0)], None)]
+    )
+    client = FingridClient("key", session=session, sleep=sleeps.append, clock=lambda: 0.0)
+    assert client.fetch(Dataset.WIND, START, END).tolist() == [1.0]
+    assert len(session.calls) == 2
+    assert 2.0 in sleeps  # backed off before the retry
+
+
+def test_gives_up_after_repeated_429() -> None:
+    session = FakeSession([FakeResponse(429, {}, text="slow down")] * 4)
+    client = FingridClient("key", session=session, sleep=lambda _: None, clock=lambda: 0.0)
+    with pytest.raises(FingridError, match="429"):
+        client.fetch(Dataset.WIND, START, END)

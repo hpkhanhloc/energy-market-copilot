@@ -34,7 +34,7 @@ def test_investigate_no_llm(capsys: pytest.CaptureFixture[str], tmp_path) -> Non
     out = capsys.readouterr().out
     assert "## Price spike on Fri 05 Jan 2024" in out
     assert "HYPOTHESES (consistent with the evidence, not proven):" in out
-    assert "Low forecast wind" in out
+    assert "Consistent with: Low forecast wind" in out
     assert (tmp_path / "price.html").exists()
 
 

@@ -1,6 +1,7 @@
 """Build one hourly market table for Finland from all sources, fetched in parallel."""
 
 import logging
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -15,6 +16,9 @@ from copilot.timeutil import to_utc
 log = logging.getLogger(__name__)
 
 Fetcher = Callable[[], pd.Series | pd.DataFrame]
+ATTEMPTS = 3
+BACKOFF_S = (5.0, 20.0)
+"""ENTSO-E answers 400/5xx now and then under parallel load; a short retry usually fixes it."""
 
 
 class EntsoeLike(Protocol):
@@ -50,6 +54,7 @@ def build_market_frame(
     entsoe: EntsoeLike | None,
     fingrid: FingridLike | None,
     max_workers: int = 8,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> MarketFrame:
     """Fetch every series for [start, end) and outer-join them on an hourly UTC index.
 
@@ -63,7 +68,7 @@ def build_market_frame(
     missing: list[str] = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        results = pool.map(_safe, jobs.items())
+        results = pool.map(lambda item: _safe(item, sleep=sleep), jobs.items())
     for name, result in zip(jobs, results, strict=True):
         if result is None or len(result) == 0:
             missing.append(name)
@@ -103,10 +108,17 @@ def _jobs(
     return jobs
 
 
-def _safe(item: tuple[str, Fetcher]) -> pd.Series | pd.DataFrame | None:
+def _safe(
+    item: tuple[str, Fetcher], *, sleep: Callable[[float], None] = time.sleep
+) -> pd.Series | pd.DataFrame | None:
     name, fetch = item
-    try:
-        return fetch()
-    except Exception as exc:
-        log.warning("could not load %s: %s: %s", name, type(exc).__name__, str(exc)[:200])
-        return None
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            return fetch()
+        except Exception as exc:
+            if attempt == ATTEMPTS:
+                log.warning("could not load %s: %s: %s", name, type(exc).__name__, str(exc)[:200])
+                return None
+            log.info("retrying %s after %s (attempt %d)", name, type(exc).__name__, attempt)
+            sleep(BACKOFF_S[attempt - 1])
+    return None  # pragma: no cover

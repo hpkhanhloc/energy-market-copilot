@@ -112,6 +112,8 @@ def _kind_of(rows: pd.DataFrame) -> EventKind:
 
 
 def _make_event(rows: pd.DataFrame, *, flagged: bool) -> Event:
+    if rows["value"].isna().all():
+        raise ValueError(f"no price data at {rows.index[0]} (gap in the source)")
     kind = _kind_of(rows)
     peak = rows["value"].idxmax() if kind is EventKind.SPIKE else rows["value"].idxmin()
     index = datetime_index(rows)

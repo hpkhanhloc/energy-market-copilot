@@ -26,3 +26,10 @@ def test_to_utc_rejects_naive() -> None:
 def test_datetime_index_rejects_plain_index() -> None:
     with pytest.raises(TypeError):
         datetime_index(pd.Series([1, 2]))
+
+
+def test_dst_hours_do_not_crash() -> None:
+    repeated = helsinki("2023-10-29 03:30")  # autumn: occurs twice, take the first (summer time)
+    skipped = helsinki("2024-03-31 03:30")  # spring: does not exist, shift forward
+    assert str(repeated) == "2023-10-29 03:30:00+03:00"
+    assert skipped.hour == 4

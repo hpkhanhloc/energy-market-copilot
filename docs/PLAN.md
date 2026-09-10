@@ -91,7 +91,7 @@ Goal: each check = one function, one number, one verdict. No LLM.
 
 - [x] `README.md` max 2 pages: first user, use case, left out, data + signals, plain code vs
       LLM, how to measure improvement, test cases, top 3 next steps
-- [ ] `tests/test_cases.md` or pytest: the two demo events as regression tests
+- [x] `tests/test_demo_events.py`: the two demo events as regression tests on a real-data fixture
       (detect finds them, expected drivers rank top)
 - [ ] Fresh-clone test: `make setup && make check && make app` on clean checkout
 - [ ] Commit, tag `v0.1`

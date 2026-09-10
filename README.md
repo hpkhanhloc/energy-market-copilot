@@ -84,7 +84,7 @@ seconds per investigation.
    prices support; nuclear and wind do not.
 2. 2023-12-16 19:00 to 12-17 07:00 is detected as a negative-price episode; wind forecast, actual
    wind and residual load support; nuclear does not.
-3. A quiet hour returns `flagged = False` and no supporting drivers.
+3. A quiet hour returns `flagged = False` and the report says so before analysing it.
 4. A synthetic spike with normal drivers everywhere gives zero supporting drivers (no false
    stories).
 5. A narrative containing a number that is not in the facts is rejected.
