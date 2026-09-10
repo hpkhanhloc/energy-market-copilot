@@ -36,6 +36,7 @@ ignore = ["E501"]  # formatter handles line length
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20", "DTZ"]
+"scripts/**" = ["T20"]
 "cli.py" = ["T20"]
 "app.py" = ["T20"]
 

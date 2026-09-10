@@ -5,7 +5,7 @@ and a commit. Keep scope: Finnish day-ahead spot price, two demo investigations.
 
 Demo events to keep working at every step:
 
-- 2024-01-05 17:00 Helsinki: spot ~2180 EUR/MWh (cold snap, tight imports)
+- 2024-01-05 19:00 Helsinki: day-ahead 1896 EUR/MWh (cold snap, tight imports)
 - 2023-11-24: spot -500 EUR/MWh (bid error; "evidence not sufficient" case)
 
 ## Step 0: Setup (done)

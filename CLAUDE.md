@@ -12,7 +12,7 @@ Step-by-step build plan with checkboxes: `docs/PLAN.md`. Tick steps there as the
 - First user: an energy-market analyst who investigates price moves by hand today.
 - Interface: `copilot/` library is the core. `app.py` (Streamlit) is the demo. `cli.py` is a thin backup.
 - No cloud deploy, no styling, no auth. Local only.
-- Must demo at least two investigations. Known good cases: 2024-01-05 17:00 (~2180 EUR/MWh spike),
+- Must demo at least two investigations. Known good cases: 2024-01-05 19:00 Helsinki (1896 EUR/MWh day-ahead spike),
   2023-11-24 (-500 EUR/MWh, bid error, "evidence not sufficient" case).
 
 ## Honesty rules (assignment grades this)
