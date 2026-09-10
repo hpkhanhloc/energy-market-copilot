@@ -1,0 +1,28 @@
+{"text": "what happened on 5 Jan 2024 at 19:00?", "expect": "investigate", "when": "2024-01-05T19:00"}
+{"text": "explain 2024-01-05 19:00", "expect": "investigate", "when": "2024-01-05T19:00"}
+{"text": "why was the price so high at 7pm on January 5th 2024", "expect": "investigate", "when": "2024-01-05T19:00"}
+{"text": "look at 16 Dec 2023 evening, prices went negative", "expect": "investigate", "when": "2023-12-16T19:00"}
+{"text": "what was going on 2023-12-17 at 03:00", "expect": "investigate", "when": "2023-12-17T03:00"}
+{"text": "tell me about 4 Jan 2024", "expect": "investigate", "when": "2024-01-04T19:00"}
+{"text": "explain 31.3.2024 02:30", "expect": "investigate", "when": "2024-03-31T02:00"}
+{"text": "the hour before that", "expect": "investigate", "when": "2024-01-05T18:00", "last_hour": "2024-01-05T19:00"}
+{"text": "same time the next day", "expect": "investigate", "when": "2024-01-06T19:00", "last_hour": "2024-01-05T19:00"}
+{"text": "find odd hours from 2023-12-08 to 2024-01-08", "expect": "scan", "start": "2023-12-08", "end": "2024-01-08"}
+{"text": "anything abnormal in December 2023?", "expect": "scan", "start": "2023-12-01", "end": "2023-12-31"}
+{"text": "scan the first week of January 2024", "expect": "scan", "start": "2024-01-01", "end": "2024-01-07"}
+{"text": "show me the weird hours between christmas and new year 2023", "expect": "scan"}
+{"text": "widen that by a week on each side", "expect": "scan", "start": "2023-12-01", "end": "2024-01-15", "last_range": ["2023-12-08", "2024-01-08"]}
+{"text": "mitä tapahtui 5.1.2024 klo 19?", "expect": "investigate", "when": "2024-01-05T19:00"}
+{"text": "what is residual load?", "expect": "ask"}
+{"text": "what does robust z mean", "expect": "ask"}
+{"text": "why does the report say imports do not support?", "expect": "ask", "last_hour": "2024-01-05T19:00"}
+{"text": "how much was wind during that hour?", "expect": "ask", "last_hour": "2024-01-05T19:00"}
+{"text": "is this a big spike compared to normal?", "expect": "ask", "last_hour": "2024-01-05T19:00"}
+{"text": "what is mFRR", "expect": "ask"}
+{"text": "write me a poem about cats", "expect": "reply"}
+{"text": "what was the imbalance price yesterday?", "expect": "reply"}
+{"text": "what happened last Friday evening?", "expect": "investigate", "when": "2026-09-04T19:00"}
+{"text": "explain the 5th", "expect": "reply"}
+{"text": "hello, what can you do?", "expect": "reply"}
+{"text": "show me German prices for 2024-01-05", "expect": "reply"}
+{"text": "what about 21:00?", "expect": "investigate", "when": "2024-01-05T21:00", "last_hour": "2024-01-05T19:00"}

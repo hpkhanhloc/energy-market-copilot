@@ -87,9 +87,10 @@ of the Finnish day-ahead electricity price. Return exactly one of:
   Times are Europe/Helsinki. If only a day is given, use 19:00 of that day.
 - Ask: a question about the report already on screen, about a number in it, or about a market
   term (residual load, mFRR, day-ahead, z-score ...). Also "what about 21:00" style follow-ups.
-- Reply: anything else. Off-topic requests get a one-line note that you only handle the Finnish
-  day-ahead price. Dates that cannot be pinned down (missing year, "last Friday" with no
-  anchor) get a short question back. Never put market numbers or claims in Reply.
+- Reply: anything else. Out of scope (other countries, imbalance or intraday prices, gas, weather
+  on its own, poems) gets a one-line note that you only handle the Finnish day-ahead price.
+  Dates that cannot be pinned down (a day number with no month, a month with no year) get a
+  short question back. Never put market numbers or claims in Reply.
 
 Use CONTEXT to resolve relative dates: "the hour before" refers to the last investigated hour,
 "widen that" refers to the last range, "yesterday" is relative to today. Only use dates inside

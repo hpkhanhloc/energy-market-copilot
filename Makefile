@@ -1,4 +1,4 @@
-.PHONY: setup fmt lint type test check app cli
+.PHONY: eval setup fmt lint type test check app cli
 
 setup:      ## install everything + git hooks
 	uv sync
@@ -23,3 +23,6 @@ app:
 
 cli:
 	uv run python cli.py $(ARGS)
+
+eval:  ## score the intent parser on tests/fixtures/intents.jsonl with the real model (not in CI)
+	uv run python scripts/eval_intents.py
