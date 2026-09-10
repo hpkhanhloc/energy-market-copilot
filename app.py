@@ -7,15 +7,12 @@ table clicks never call the LLM. See views.py for the turn handling.
 
 import logging
 
-import pandas as pd
 import streamlit as st
 
 from copilot.config import load_settings
-from copilot.intent import data_reach
 from copilot.trace import last_call
 from views import (
     STARTERS,
-    TZ,
     chip_picked,
     clear_chat,
     handle_intent,
@@ -66,10 +63,9 @@ with st.sidebar:
         st.caption("Every call is appended to data/logs/llm.jsonl.")
 
 st.title("Energy Market Copilot")
-reach_start, reach_end = data_reach(settings.cache_dir, pd.Timestamp.now(tz=TZ).date())
 st.caption(
     "Finnish day-ahead price. Ask what happened, get the numbers, the charts, and which drivers "
-    f"the evidence supports. Data on disk: {reach_start:%b %Y} to {reach_end:%b %Y}."
+    "the evidence supports."
 )
 st.pills("Try one", list(STARTERS), key="chip", on_change=chip_picked, label_visibility="collapsed")
 
