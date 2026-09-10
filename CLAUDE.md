@@ -13,7 +13,8 @@ Step-by-step build plan with checkboxes: `docs/PLAN.md`. Tick steps there as the
 - Interface: `copilot/` library is the core. `app.py` (Streamlit) is the demo. `cli.py` is a thin backup.
 - No cloud deploy, no styling, no auth. Local only.
 - Must demo at least two investigations. Known good cases: 2024-01-05 19:00 Helsinki (1896 EUR/MWh day-ahead spike),
-  2023-11-24 (-500 EUR/MWh, bid error, "evidence not sufficient" case).
+  2023-12-16 19:00 to 12-17 07:00 Helsinki (13 h at or below 0 EUR/MWh, windy night).
+  Cache for 2023-12-08..2024-01-08 is warmed; `uv run python scripts/warm_cache.py <start> <end>` for more.
 
 ## Honesty rules (assignment grades this)
 
