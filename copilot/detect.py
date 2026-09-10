@@ -65,7 +65,7 @@ def score_prices(price: pd.Series, config: DetectConfig | None = None) -> pd.Dat
 
 
 def find_events(
-    price: pd.Series, config: DetectConfig | None = None, *, top_n: int = 5
+    price: pd.Series, config: DetectConfig | None = None, *, top_n: int | None = 5
 ) -> list[Event]:
     """Abnormal episodes in `price`, strongest first (by |z|, negative prices by depth)."""
     config = config or DetectConfig()
@@ -73,7 +73,7 @@ def find_events(
     flagged = scored[scored["kind"].notna()]
     events = [_make_event(scored.loc[group], flagged=True) for group in _groups(flagged, config)]
     events.sort(key=lambda e: (abs(e.z) if pd.notna(e.z) else 0.0, -e.peak_price), reverse=True)
-    return events[:top_n]
+    return events if top_n is None else events[:top_n]
 
 
 def event_at(price: pd.Series, when: pd.Timestamp, config: DetectConfig | None = None) -> Event:

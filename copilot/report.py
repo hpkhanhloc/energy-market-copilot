@@ -123,6 +123,7 @@ SMALL_COUNT_LIMIT = (
 def unknown_numbers(narrative: Narrative, facts: str) -> list[str]:
     """Numbers in the narrative that do not appear in the facts text (possible hallucinations)."""
     allowed = {_norm(n) for n in NUMBER.findall(facts)}
+    allowed |= _rounded(allowed)  # "z = 30.3" may be quoted as "30"
     found: list[str] = []
     for text in _texts(narrative):
         counts = _count_numbers(text)
@@ -153,6 +154,17 @@ def _texts(narrative: Narrative) -> Iterable[str]:
     yield from narrative.insufficient
 
 
+def _rounded(values: set[str]) -> set[str]:
+    out: set[str] = set()
+    for value in values:
+        if "." in value and not value.endswith("%"):
+            try:
+                out.add(str(round(float(value))))
+            except ValueError:
+                continue
+    return out
+
+
 def _small_count(value: str) -> bool:
     try:
         number = float(value)
@@ -162,5 +174,6 @@ def _small_count(value: str) -> bool:
 
 
 def _norm(number: str) -> str:
-    """Comparable form: no thousands separators, no whitespace, no sign (84 matches -84)."""
-    return "".join(number.split()).replace(",", "").lstrip("+-")
+    """Comparable form: no separators, whitespace, sign or leading zeros (05 Jan == 5 Jan)."""
+    core = "".join(number.split()).replace(",", "").lstrip("+-")
+    return core.lstrip("0") or "0" if not core.startswith("0.") else core

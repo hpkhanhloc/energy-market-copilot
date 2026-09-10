@@ -1,4 +1,8 @@
-"""Streamlit demo. Run: uv run streamlit run app.py"""
+"""Streamlit demo. Run: uv run streamlit run app.py
+
+Flow: pick a date range and Scan -> table of abnormal episodes -> pick one -> investigation.
+Or open "Any hour" to investigate a specific hour even if it is not abnormal.
+"""
 
 import logging
 from datetime import date
@@ -8,8 +12,9 @@ import streamlit as st
 
 from copilot.config import load_settings
 from copilot.data.frame import MarketFrame
+from copilot.detect import Event
 from copilot.drivers.base import Verdict
-from copilot.investigate import Investigation, investigate_at, load_window, scan, window_for
+from copilot.investigate import Investigation, investigate_at, investigate_event, load_window, scan
 from copilot.llm import narrate
 from copilot.plots import all_figures
 from copilot.report import Narrative, fallback_narrative, render_facts
@@ -22,13 +27,13 @@ BADGE = {
     Verdict.DOES_NOT_SUPPORT: "⚪ does not support",
     Verdict.INSUFFICIENT: "❔ not enough data",
 }
+HISTORY_DAYS = 30  # fetched before the range so the 28-day baseline exists on day one
 
 st.set_page_config(page_title="Energy Market Copilot", layout="wide")
 st.title("Energy Market Copilot")
 st.caption(
     "Finland, day-ahead price. Facts from data, hypotheses clearly labelled, nothing proven."
 )
-
 settings = load_settings()
 
 
@@ -37,22 +42,33 @@ def cached_window(start: str, end: str) -> pd.DataFrame:
     return load_window(settings, helsinki(start), helsinki(end)).data
 
 
+@st.cache_data(show_spinner="Writing the narrative...")
+def cached_narrative(facts: str, model: str, _inv: Investigation) -> dict:
+    return narrate(_inv, model=model).model_dump()
+
+
+def narrative_for(inv: Investigation, use_llm: bool) -> Narrative:
+    if not use_llm:
+        return fallback_narrative(inv)
+    return Narrative(**cached_narrative(render_facts(inv), settings.copilot_model, inv))
+
+
 with st.sidebar:
-    st.header("What to look at")
-    mode = st.radio("Mode", ["Investigate an hour", "Scan a date range"])
+    st.header("1. Scan a date range")
+    start = st.date_input("From", value=date(2023, 12, 8))
+    end = st.date_input("To", value=date(2024, 1, 8))
+    if st.button("Scan for abnormal hours", type="primary"):
+        st.session_state["range"] = (str(start), str(end))
+        st.session_state.pop("any_hour", None)
+    st.header("Or: any hour")
+    day = st.date_input("Day", value=date(2024, 1, 5))
+    hour = st.slider("Hour (Helsinki)", 0, 23, 19)
+    if st.button("Investigate this hour"):
+        st.session_state["any_hour"] = f"{day}T{hour:02d}:00"
+    st.divider()
     use_llm = st.toggle(
         "Write narrative with LLM", value=True, help=f"Model: {settings.copilot_model}"
     )
-    when = helsinki("2024-01-05T19:00")
-    start, end = date(2023, 12, 8), date(2024, 1, 8)
-    if mode == "Investigate an hour":
-        day = st.date_input("Day", value=date(2024, 1, 5))
-        hour = st.slider("Hour (Helsinki)", 0, 23, 19)
-        when = helsinki(f"{day}T{hour:02d}:00")
-    else:
-        start = st.date_input("From", value=start)
-        end = st.date_input("To", value=end)
-    run = st.button("Run", type="primary")
 
 
 def show_investigation(inv: Investigation, narrative: Narrative) -> None:
@@ -68,7 +84,6 @@ def show_investigation(inv: Investigation, narrative: Narrative) -> None:
     )
     cols[2].metric("Robust z", f"{e.z:+.1f}")
     cols[3].metric("Event length", f"{e.hours} h")
-
     st.markdown("### What happened")
     st.write(narrative.summary)
     left, right = st.columns(2)
@@ -84,14 +99,12 @@ def show_investigation(inv: Investigation, narrative: Narrative) -> None:
             st.markdown("**Not enough data**")
             for item in narrative.insufficient:
                 st.markdown(f"- {item}")
-
     figures = all_figures(inv)
     st.plotly_chart(figures["price"], use_container_width=True)
     st.markdown("### Driver checks")
     for result in inv.results:
-        with st.expander(
-            f"{BADGE[result.verdict]} · {result.title}", expanded=result.verdict is Verdict.SUPPORTS
-        ):
+        expanded = result.verdict is Verdict.SUPPORTS
+        with st.expander(f"{BADGE[result.verdict]} · {result.title}", expanded=expanded):
             st.markdown(f"*Hypothesis tested:* {result.hypothesis}")
             st.markdown(result.detail)
             fig = figures.get(result.name)
@@ -101,43 +114,46 @@ def show_investigation(inv: Investigation, narrative: Narrative) -> None:
         st.markdown(render_facts(inv))
 
 
-if run and mode == "Investigate an hour":
-    start_ts, end_ts = window_for(when)
-    data = cached_window(str(start_ts), str(end_ts))
+def events_table(events: list[Event]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "kind": [str(e.kind) for e in events],
+            "start (Helsinki)": [e.start.tz_convert(TZ).strftime("%a %d %b %H:%M") for e in events],
+            "hours": [e.hours for e in events],
+            "peak EUR/MWh": [round(e.peak_price) for e in events],
+            "baseline": [round(e.baseline_median) for e in events],
+            "z": [round(float(e.z), 1) for e in events],
+        }
+    )
+
+
+if "any_hour" in st.session_state:
+    when = helsinki(st.session_state["any_hour"])
+    window_start = when.floor("D") - pd.Timedelta(days=HISTORY_DAYS)
+    data = cached_window(str(window_start), str(when.floor("D") + pd.Timedelta(days=2)))
     inv = investigate_at(MarketFrame(data=data), when)
-    narrative = narrate(inv, model=settings.copilot_model) if use_llm else fallback_narrative(inv)
-    show_investigation(inv, narrative)
-elif run:
-    data = cached_window(str(helsinki(str(start))), str(helsinki(str(end))))
-    frame = MarketFrame(data=data)
-    events = scan(frame, top_n=8)
+    show_investigation(inv, narrative_for(inv, use_llm))
+elif "range" in st.session_state:
+    start_s, end_s = st.session_state["range"]
+    fetch_start = helsinki(start_s) - pd.Timedelta(days=HISTORY_DAYS)
+    frame = MarketFrame(data=cached_window(str(fetch_start), end_s))
+    events = scan(frame, top_n=10, since=helsinki(start_s))
+    st.markdown(f"### Abnormal episodes, {start_s} to {end_s}")
     if not events:
         st.info("No abnormal hours in that range.")
     else:
-        table = pd.DataFrame(
-            {
-                "kind": [e.kind for e in events],
-                "start (Helsinki)": [
-                    e.start.tz_convert(TZ).strftime("%Y-%m-%d %H:%M") for e in events
-                ],
-                "hours": [e.hours for e in events],
-                "peak EUR/MWh": [round(e.peak_price) for e in events],
-                "baseline": [round(e.baseline_median) for e in events],
-                "z": [round(e.z, 1) for e in events],
-            }
-        )
+        table = events_table(events)
         st.dataframe(table, hide_index=True, use_container_width=True)
         pick = st.selectbox(
-            "Investigate",
+            "2. Pick an episode to investigate",
             options=range(len(events)),
-            format_func=lambda i: table["start (Helsinki)"][i],
+            format_func=lambda i: (
+                f"{table['start (Helsinki)'][i]} · {table['kind'][i]} · {table['peak EUR/MWh'][i]} EUR/MWh"
+            ),
         )
-        inv = investigate_at(frame, events[pick].peak_time)
-        narrative = (
-            narrate(inv, model=settings.copilot_model) if use_llm else fallback_narrative(inv)
-        )
-        show_investigation(inv, narrative)
+        inv = investigate_event(frame, events[pick])
+        show_investigation(inv, narrative_for(inv, use_llm))
 else:
     st.info(
-        "Pick an hour or a range on the left and press Run. Try 5 Jan 2024 19:00 or scan Dec 2023."
+        "Scan a date range on the left (Dec 2023 to Jan 2024 is cached), then pick an episode. Or investigate any hour."
     )

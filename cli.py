@@ -9,12 +9,14 @@ import argparse
 import logging
 from pathlib import Path
 
+import pandas as pd
+
 from copilot.config import load_settings
-from copilot.investigate import investigate_at, load_window, scan, window_for
+from copilot.investigate import HISTORY_DAYS, investigate_at, load_window, scan, window_for
 from copilot.llm import narrate
 from copilot.plots import all_figures
 from copilot.report import Narrative, fallback_narrative, render_facts
-from copilot.timeutil import helsinki
+from copilot.timeutil import helsinki, ts
 
 TZ = "Europe/Helsinki"
 
@@ -39,8 +41,10 @@ def cmd_investigate(when: str, *, use_llm: bool, charts: Path | None) -> None:
 
 def cmd_scan(start: str, end: str, *, top_n: int) -> None:
     settings = load_settings()
-    frame = load_window(settings, helsinki(start), helsinki(end))
-    events = scan(frame, top_n=top_n)
+    frame = load_window(
+        settings, ts(helsinki(start) - pd.Timedelta(days=HISTORY_DAYS)), helsinki(end)
+    )
+    events = scan(frame, top_n=top_n, since=helsinki(start))
     if not events:
         print("No abnormal hours found in that range.")
         return

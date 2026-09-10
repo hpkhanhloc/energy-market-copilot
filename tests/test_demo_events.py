@@ -63,3 +63,10 @@ def test_quiet_hour_is_unflagged_and_says_so(frame: MarketFrame) -> None:
     assert abs(inv.event.z) < 4
     assert "NOT abnormal" in render_facts(inv)
     assert inv.supporting == []  # this particular hour: nothing moved either
+
+
+def test_scan_since_keeps_negative_night_in_range(frame: MarketFrame) -> None:
+    events = scan(frame, top_n=5, since=helsinki("2023-12-15"))
+    kinds = {(e.kind, e.start.tz_convert("Europe/Helsinki").strftime("%m-%d")) for e in events}
+    assert (EventKind.NEGATIVE, "12-16") in kinds
+    assert all(e.start >= helsinki("2023-12-15") for e in events)

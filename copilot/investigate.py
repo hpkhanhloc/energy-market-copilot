@@ -63,10 +63,24 @@ def investigate_event(frame: MarketFrame, event: Event) -> Investigation:
     return _build(frame, event)
 
 
-def scan(frame: MarketFrame, config: DetectConfig | None = None, *, top_n: int = 5) -> list[Event]:
-    """List the strongest price events in the frame (baseline needs ~a week of lead-in)."""
+def scan(
+    frame: MarketFrame,
+    config: DetectConfig | None = None,
+    *,
+    top_n: int = 5,
+    since: pd.Timestamp | None = None,
+) -> list[Event]:
+    """Strongest price events in the frame, optionally only those starting at/after `since`.
+
+    The frame usually carries extra history for the baseline; `since` keeps that history out of
+    the ranking so events in the requested range are not crowded out by earlier ones.
+    """
     _require_price(frame)
-    return find_events(frame.data["price_fi"], config, top_n=top_n)
+    events = find_events(frame.data["price_fi"], config, top_n=None)
+    if since is not None:
+        cutoff = to_utc(since)
+        events = [e for e in events if e.start >= cutoff]
+    return events[:top_n]
 
 
 def _build(frame: MarketFrame, event: Event) -> Investigation:
