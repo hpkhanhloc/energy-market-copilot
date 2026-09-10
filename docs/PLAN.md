@@ -84,7 +84,7 @@ Goal: each check = one function, one number, one verdict. No LLM.
 - [x] `cli.py`: `investigate <date|datetime>` and `scan <start> <end>`; prints report, saves PNGs
 - [x] `app.py` (Streamlit, <150 lines): date picker or "scan last 30 days", event list,
       charts, report, facts/hypotheses split visually
-- [ ] Run both demo events end to end, screenshot for README
+- [x] Run both demo events end to end (CLI + real LLM); screenshots skipped, README stays text
 - [x] Commit
 
 ## Step 7: README + eval
@@ -93,8 +93,8 @@ Goal: each check = one function, one number, one verdict. No LLM.
       LLM, how to measure improvement, test cases, top 3 next steps
 - [x] `tests/test_demo_events.py`: the two demo events as regression tests on a real-data fixture
       (detect finds them, expected drivers rank top)
-- [ ] Fresh-clone test: `make setup && make check && make app` on clean checkout
-- [ ] Commit, tag `v0.1`
+- [x] Fresh-clone test: `make setup && make check` on clean checkout (84 tests pass)
+- [x] Commit, tag `v0.1`
 
 ## Stretch (only if time)
 
