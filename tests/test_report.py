@@ -142,3 +142,25 @@ def test_render_facts_midnight_crossing_and_missing_baseline() -> None:
     assert "not enough history" in text
     assert "nan" not in text
     assert "nan" not in fallback_narrative(inv).summary
+
+
+def test_narrate_drops_invented_insufficient_items(investigation: Investigation) -> None:
+    from copilot.drivers.base import Verdict
+
+    full = Investigation(
+        event=investigation.event,
+        frame=investigation.frame,
+        results=[r for r in investigation.results if r.verdict is not Verdict.INSUFFICIENT],
+        window_start=investigation.window_start,
+        window_end=investigation.window_end,
+    )
+    agent = build_agent("test")
+    output = {
+        "summary": "ok",
+        "facts": [],
+        "hypotheses": [],
+        "insufficient": ["No fuel price data."],
+    }
+    with agent.override(model=TestModel(custom_output_args=output)):
+        narrative = narrate(full, model="test", agent=agent)
+    assert narrative.insufficient == []

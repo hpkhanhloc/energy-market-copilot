@@ -4,6 +4,7 @@ import logging
 
 from pydantic_ai import Agent
 
+from copilot.drivers.base import Verdict
 from copilot.investigate import Investigation
 from copilot.report import Narrative, fallback_narrative, render_facts, unknown_numbers
 
@@ -18,7 +19,8 @@ Rules:
 - `facts`: the 4 to 6 most decisive observations with their numbers and units, one per item.
 - `hypotheses`: what the evidence is consistent with. Say "consistent with", "supports",
   "does not support". Never say "caused", "because" or "due to".
-- `insufficient`: anything marked not enough data, in one line each.
+- `insufficient`: only items the FACTS mark as not enough data, one line each. If there are
+  none, return an empty list. Do not list data the system does not have.
 - `summary`: two or three plain sentences for a busy reader, hedged the same way.
 - Keep it under 200 words in total. No headers, no markdown."""
 
@@ -51,4 +53,10 @@ def narrate(
             "LLM narrative used numbers not in the facts %s; using deterministic narrative", bad
         )
         return fallback_narrative(inv)
+    if narrative.insufficient and not any(r.verdict is Verdict.INSUFFICIENT for r in inv.results):
+        log.info(
+            "dropping %d 'insufficient' items the model added on its own",
+            len(narrative.insufficient),
+        )
+        narrative = narrative.model_copy(update={"insufficient": []})
     return narrative
