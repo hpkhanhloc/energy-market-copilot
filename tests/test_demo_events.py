@@ -66,6 +66,7 @@ def test_quiet_hour_is_unflagged_and_says_so(frame: MarketFrame) -> None:
     assert abs(inv.event.z) < 4
     assert "NOT abnormal" in render_facts(inv)
     assert inv.event.kind is EventKind.CRASH  # below its own baseline, but not by much
+    assert inv.supporting == []  # this particular hour: nothing moved either
 
 
 def test_scan_since_keeps_negative_night_in_range(frame: MarketFrame) -> None:

@@ -15,6 +15,10 @@ Z_SUPPORT = 2.0
 """|robust z| at or above this counts as a real move for a driver."""
 RELATIVE_SUPPORT = 0.20
 """...or a move of at least this share of the baseline (for noisy series where MAD is wide)."""
+Z_NOT_ORDINARY = 1.0
+"""The relative branch still needs this much z: a big-looking share of a wide baseline can be
+an entirely ordinary hour, and calling that "supports" states a hypothesis the data does not
+back. Wind 24% below normal at z = +0.3 is exactly that case."""
 
 
 class Verdict(StrEnum):
@@ -75,9 +79,10 @@ def compare_to_baseline(
     """Compare `column` during the event with its same-hour baseline.
 
     `bullish_when` is "lower" or "higher": the direction of the driver that pushes price UP.
-    For a spike the driver supports if it moved in the bullish direction by |z| >= Z_SUPPORT;
-    for a crash/negative event the opposite direction is required. `hypothesis_up` is the story
-    tested for high prices, `hypothesis_down` for crashes and negative prices.
+    For a spike the driver supports if it moved in the bullish direction by |z| >= Z_SUPPORT,
+    or by RELATIVE_SUPPORT of its baseline while still being at least Z_NOT_ORDINARY away from
+    normal; for a crash/negative event the opposite direction is required. `hypothesis_up` is
+    the story tested for high prices, `hypothesis_down` for crashes and negative prices.
     """
     hypothesis = hypothesis_up if price_up(event) else hypothesis_down
     if not frame.has(column):
@@ -140,7 +145,7 @@ def _moved(value: float, baseline: float, z: float, *, lower: bool) -> bool:
     if diff <= 0:
         return False
     relative = diff / abs(baseline) if baseline else 0.0
-    return z >= Z_SUPPORT or relative >= RELATIVE_SUPPORT
+    return z >= Z_SUPPORT or (relative >= RELATIVE_SUPPORT and z >= Z_NOT_ORDINARY)
 
 
 def _pct(value: float, baseline: float) -> str:

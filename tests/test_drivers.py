@@ -162,6 +162,7 @@ def test_neighbours_regional_vs_local() -> None:
         _frame(
             price_se1=_with_event_values("price_se1", 500.0),
             price_se3=_with_event_values("price_se3", 500.0),
+            price_ee=_with_event_values("price_ee", 500.0),
         ),
         _spike(),
     )
@@ -196,3 +197,64 @@ def test_run_all_orders_supporting_first() -> None:
         "residual_load",
     }
     assert all(r.detail for r in results)
+
+
+def test_neighbours_needs_more_than_one_of_three_to_call_it_regional() -> None:
+    """`len(zs) // 2` let a single abnormal neighbour assert "a regional move"."""
+    frame = _frame(price_se1=_with_event_values("price_se1", 500.0))
+    frame.data.drop(columns=["price_no4"], inplace=True)  # three neighbours left
+    result = neighbour_prices(frame, _spike())
+    assert result.verdict is Verdict.DOES_NOT_SUPPORT
+    assert "1 of 3 neighbouring prices moved with Finland" in result.detail
+    assert "on its own" in result.detail
+
+
+def test_neighbours_reports_how_many_of_how_many_moved() -> None:
+    frame = _frame(
+        price_se1=_with_event_values("price_se1", 500.0),
+        price_se3=_with_event_values("price_se3", 500.0),
+        price_ee=_with_event_values("price_ee", 500.0),
+    )
+    result = neighbour_prices(frame, _spike())
+    assert result.verdict is Verdict.SUPPORTS
+    assert "3 of 4 neighbouring prices moved with Finland: a regional move." in result.detail
+
+
+def test_neighbours_half_is_not_a_majority() -> None:
+    frame = _frame(
+        price_se1=_with_event_values("price_se1", 500.0),
+        price_se3=_with_event_values("price_se3", 500.0),
+    )
+    result = neighbour_prices(frame, _spike())
+    assert result.verdict is Verdict.DOES_NOT_SUPPORT
+    assert "2 of 4 neighbouring prices moved with Finland, so Finland moved on its own." in (
+        result.detail
+    )
+
+
+def test_neighbours_one_of_two_is_not_a_regional_move() -> None:
+    """Rounding half up would have called this regional; two neighbours is a reachable state."""
+    frame = _frame(price_se1=_with_event_values("price_se1", 500.0))
+    frame.data.drop(columns=["price_ee", "price_no4"], inplace=True)
+    result = neighbour_prices(frame, _spike())
+    assert result.verdict is Verdict.DOES_NOT_SUPPORT
+    assert "1 of 2 neighbouring prices moved with Finland" in result.detail
+
+
+def test_imports_omits_the_total_baseline_when_it_has_no_history() -> None:
+    """The per-border breakdown already guarded this; the total did not and printed "nan"."""
+    frame = _frame(import_se3=_with_event_values("import_se3", 0.0))
+    frame.data.loc[: T0 - pd.Timedelta(hours=1), "import_total"] = np.nan
+    result = imports(frame, _spike())
+    assert "Total net import" in result.detail
+    assert "nan" not in result.detail
+    assert "normal" not in result.detail.split("Total net import")[1]
+
+
+def test_a_big_relative_move_that_is_statistically_ordinary_does_not_support() -> None:
+    """20% of a very wide baseline can still be an entirely normal hour."""
+    frame = _frame(load=_flat(10_000, 4_000, 21))
+    frame.data.loc[T0 : T0 + pd.Timedelta(hours=2), "load"] = 12_500.0  # +25%, z well under 1
+    result = load(frame, _spike())
+    assert abs(result.z or 0.0) < 1.0
+    assert result.verdict is Verdict.DOES_NOT_SUPPORT

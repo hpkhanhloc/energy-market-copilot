@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from copilot.baseline import BaselineConfig, baseline_frame
+from copilot.baseline import BaselineConfig, _rolling_mad, baseline_frame
 from copilot.timeutil import datetime_index, ts
 
 TZ = "Europe/Helsinki"
@@ -109,3 +109,20 @@ def test_rejects_naive_index() -> None:
     naive = pd.Series([1.0, 2.0], index=pd.date_range("2024-01-01", periods=2, freq="1h"))
     with pytest.raises(ValueError, match="tz-aware"):
         baseline_frame(naive)
+
+
+def test_rolling_mad_matches_the_plain_python_version() -> None:
+    """The vectorised MAD replaced a rolling().apply() callback; it must agree exactly."""
+    rng = np.random.default_rng(7)
+    wide = pd.DataFrame(rng.normal(0, 10, (40, 5)))
+    wide.iloc[3, 2] = np.nan  # gaps happen: a missing hour in the source
+    wide.iloc[:6, 4] = np.nan
+
+    def naive(values: np.ndarray) -> float:
+        values = values[~np.isnan(values)]
+        if values.size == 0:
+            return float("nan")
+        return float(np.median(np.abs(values - np.median(values))))
+
+    expected = wide.rolling(8, min_periods=1).apply(naive, raw=True)
+    pd.testing.assert_frame_equal(_rolling_mad(wide, 8), expected, check_dtype=False)

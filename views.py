@@ -4,10 +4,10 @@ A turn is a dict: {"role": "user"|"assistant", "kind": "text"|"scan"|"investigat
 Every rerun re-renders the stored turns; nothing is recomputed.
 """
 
-import math
 from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Any
+from uuid import uuid4
 
 import pandas as pd
 import streamlit as st
@@ -32,7 +32,7 @@ from copilot.intent import (
 from copilot.investigate import Investigation, investigate_at, load_window, scan, window_for
 from copilot.llm import narrate
 from copilot.plots import all_figures
-from copilot.report import Narrative, fallback_narrative, render_facts
+from copilot.report import Narrative, fallback_narrative, format_number, render_facts
 from copilot.timeutil import helsinki
 
 TZ = "Europe/Helsinki"
@@ -44,7 +44,6 @@ KIND_WORD = {
     EventKind.NEGATIVE: "Negative price",
 }
 VERDICT_ICON = {Verdict.SUPPORTS: "🟠", Verdict.DOES_NOT_SUPPORT: "⚪", Verdict.INSUFFICIENT: "❔"}
-NO_BASELINE = "—"  # shown instead of a number when an hour has too little history
 VERDICT_GROUPS = (
     (
         Verdict.SUPPORTS,
@@ -71,9 +70,11 @@ NOTHING_YET = "Nothing investigated yet. Ask me to explain an hour first, or pic
 
 
 @st.cache_data(show_spinner="Loading market data. ENTSO-E is slow the first time, about a minute.")
-def cached_window(start: str, end: str) -> pd.DataFrame:
+def cached_window(start: str, end: str) -> MarketFrame:
+    """The whole frame, including `missing`. Dropping it left `Investigation.missing_data`
+    always empty in the app, so a failed ENTSO-E fetch never showed up in the report."""
     settings: Settings = st.session_state["settings"]
-    return load_window(settings, helsinki(start), helsinki(end)).data
+    return load_window(settings, helsinki(start), helsinki(end))
 
 
 @st.cache_data(show_spinner="Writing the summary...")
@@ -96,8 +97,12 @@ def turns() -> list[dict[str, Any]]:
 
 def add_turn(turn: dict[str, Any]) -> None:
     items = turns()
-    items.append(turn)
+    items.append(turn | {"id": uuid4().hex})
     del items[:-MAX_TURNS]
+
+
+def turn_by_id(turn_id: str) -> dict[str, Any] | None:
+    return next((t for t in turns() if t["id"] == turn_id), None)
 
 
 def user_text(text: str) -> None:
@@ -175,14 +180,16 @@ def handle_intent(intent: Intent, settings: Settings, *, ai: bool) -> None:
 
 def run_scan(start: date, end: date) -> dict[str, Any]:
     since = helsinki(str(start))
-    data = cached_window(str(since - pd.Timedelta(days=HISTORY_DAYS)), str(end + timedelta(days=1)))
-    events = scan(MarketFrame(data=data), top_n=10, since=since)
+    frame = cached_window(
+        str(since - pd.Timedelta(days=HISTORY_DAYS)), str(end + timedelta(days=1))
+    )
+    events = scan(frame, top_n=10, since=since)
     return {"role": "assistant", "kind": "scan", "start": start, "end": end, "events": events}
 
 
 def run_investigate(when: pd.Timestamp, settings: Settings, *, ai: bool) -> dict[str, Any]:
     start, end = window_for(when)
-    inv = investigate_at(MarketFrame(data=cached_window(str(start), str(end))), when)
+    inv = investigate_at(cached_window(str(start), str(end)), when)
     return {
         "role": "assistant",
         "kind": "investigation",
@@ -203,11 +210,12 @@ def chip_picked() -> None:
     st.session_state["chip"] = None
 
 
-def row_picked(turn_index: int) -> None:
-    label = st.session_state.get(f"pick_{turn_index}")
-    if not label:
+def row_picked(turn_id: str) -> None:
+    label = st.session_state.get(f"pick_{turn_id}")
+    turn = turn_by_id(turn_id)
+    if not label or turn is None:
         return
-    events: list[Event] = turns()[turn_index]["events"]
+    events: list[Event] = turn["events"]
     event = events[[episode_label(e) for e in events].index(label)]
     when = event.peak_time.tz_convert(TZ)
     st.session_state["pending"] = (f"Explain {when:%a %d %b %Y %H:%M}", Investigate(when=when))
@@ -231,7 +239,7 @@ def clear_chat() -> None:
 # ---------- rendering ----------
 
 
-def show_turn(i: int, turn: dict[str, Any], *, latest_investigation: bool) -> None:
+def show_turn(turn: dict[str, Any], *, latest_investigation: bool) -> None:
     match turn["kind"]:
         case "text":
             st.write(turn["text"])
@@ -240,7 +248,7 @@ def show_turn(i: int, turn: dict[str, Any], *, latest_investigation: bool) -> No
         case "error":
             st.error(turn["text"])
         case "scan":
-            show_scan(i, turn)
+            show_scan(turn)
         case "investigation":
             if latest_investigation:
                 show_investigation(turn["inv"], turn["narrative"], turn["figures"])
@@ -249,7 +257,7 @@ def show_turn(i: int, turn: dict[str, Any], *, latest_investigation: bool) -> No
                     show_investigation(turn["inv"], turn["narrative"], turn["figures"])
 
 
-def show_scan(i: int, turn: dict[str, Any]) -> None:
+def show_scan(turn: dict[str, Any]) -> None:
     events: list[Event] = turn["events"]
     if not events:
         st.write(
@@ -273,15 +281,10 @@ def show_scan(i: int, turn: dict[str, Any]) -> None:
         [episode_label(e) for e in events],
         index=None,
         placeholder="Pick an episode to investigate",
-        key=f"pick_{i}",
-        on_change=partial(row_picked, i),
+        key=f"pick_{turn['id']}",
+        on_change=partial(row_picked, turn["id"]),
         label_visibility="collapsed",
     )
-
-
-def number(value: float, spec: str) -> str:
-    """Format a number that is NaN when the hour has too little history for a baseline."""
-    return NO_BASELINE if math.isnan(value) else spec.format(value)
 
 
 def episode_label(e: Event) -> str:
@@ -302,9 +305,9 @@ def events_table(events: list[Event]) -> pd.DataFrame:
             "Lasted": [f"{e.hours} h" for e in events],
             "What": [KIND_WORD[e.kind] for e in events],
             "Peak EUR/MWh": [round(e.peak_price) for e in events],
-            "Usual EUR/MWh": [number(e.baseline_median, "{:,.0f}") for e in events],
-            "Difference EUR/MWh": [number(e.deviation, "{:+,.0f}") for e in events],
-            "Rarity (z)": [number(e.z, "{:+.1f}") for e in events],
+            "Usual EUR/MWh": [format_number(e.baseline_median, "{:,.0f}") for e in events],
+            "Difference EUR/MWh": [format_number(e.deviation, "{:+,.0f}") for e in events],
+            "Rarity (z)": [format_number(e.z, "{:+.1f}") for e in events],
         }
     )
 
@@ -323,14 +326,16 @@ def show_investigation(inv: Investigation, narrative: Narrative, figures: dict) 
         st.caption("This hour is within its normal range. Analysed anyway.")
     if not e.has_baseline:
         st.caption("Too little history for this hour and day type, so there is no baseline.")
+    if inv.missing_data:
+        st.warning(f"Series that could not be loaded: {', '.join(inv.missing_data)}.")
     m = st.columns(4)
     m[0].metric("Peak", f"{e.peak_price:,.0f} EUR/MWh")
     m[1].metric(
         "Normal for this hour",
-        number(e.baseline_median, "{:,.0f} EUR/MWh"),
-        number(e.deviation, "{:+,.0f}") if e.has_baseline else None,
+        format_number(e.baseline_median, "{:,.0f} EUR/MWh"),
+        format_number(e.deviation, "{:+,.0f}") if e.has_baseline else None,
     )
-    m[2].metric("How unusual (z)", number(e.z, "{:+.1f}"))
+    m[2].metric("How unusual (z)", format_number(e.z, "{:+.1f}"))
     m[3].metric("Lasted", f"{e.hours} h")
 
     st.write(narrative.summary)

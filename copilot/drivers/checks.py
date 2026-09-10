@@ -126,7 +126,8 @@ def imports(frame: MarketFrame, event: Event) -> DriverResult:
         base = (
             baseline_frame(frame.data["import_total"]).loc[event.start : event.end]["median"].mean()
         )
-        total = f" Total net import {window['import_total'].mean():,.0f} MW (normal {base:,.0f})."
+        normal = f" (normal {base:,.0f})" if pd.notna(base) else ""  # as in _border_breakdown
+        total = f" Total net import {window['import_total'].mean():,.0f} MW{normal}."
     else:
         total = ""
     return replace(result, detail=f"{result.detail} Per border: {extra}.{total}")
@@ -156,15 +157,21 @@ def neighbour_prices(frame: MarketFrame, event: Event) -> DriverResult:
             columns=tuple(NEIGHBOUR_PRICES),
         )
     regional = [z for z in zs if (z >= Z_SUPPORT if price_up(event) else z <= -Z_SUPPORT)]
-    verdict = (
-        Verdict.SUPPORTS if len(regional) >= max(1, len(zs) // 2) else Verdict.DOES_NOT_SUPPORT
-    )
-    where = "also abnormal" if verdict is Verdict.SUPPORTS else "roughly normal"
+    # Strict majority: more than half, so 1 of 2 and 1 of 3 are not enough. `len(zs) // 2`
+    # let a single abnormal neighbour print "a regional move" as a flat assertion, and
+    # rounding half up still allowed it whenever only two neighbours had data.
+    verdict = Verdict.SUPPORTS if len(regional) > len(zs) / 2 else Verdict.DOES_NOT_SUPPORT
+    where = "also abnormal" if verdict is Verdict.SUPPORTS else "mostly normal"
+    tally = f"{len(regional)} of {len(zs)} neighbouring prices moved with Finland"
     detail = (
         f"Neighbouring prices during the event were {where}: "
         + "; ".join(rows)
-        + ". "
-        + ("A regional move." if verdict is Verdict.SUPPORTS else "Finland moved on its own.")
+        + f". {tally}"
+        + (
+            ": a regional move."
+            if verdict is Verdict.SUPPORTS
+            else ", so Finland moved on its own."
+        )
     )
     return DriverResult(
         name="neighbours",

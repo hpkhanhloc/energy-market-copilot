@@ -15,7 +15,7 @@ from copilot.config import load_settings
 from copilot.investigate import HISTORY_DAYS, investigate_at, load_window, scan, window_for
 from copilot.llm import narrate
 from copilot.plots import all_figures
-from copilot.report import Narrative, fallback_narrative, render_facts
+from copilot.report import Narrative, fallback_narrative, format_number, render_facts
 from copilot.timeutil import helsinki, ts
 
 TZ = "Europe/Helsinki"
@@ -41,8 +41,12 @@ def cmd_investigate(when: str, *, use_llm: bool, charts: Path | None) -> None:
 
 def cmd_scan(start: str, end: str, *, top_n: int) -> None:
     settings = load_settings()
+    # +1 day: `helsinki(end)` is midnight at the *start* of the end day and the window is
+    # half-open, so without this the last day of the range is never looked at.
     frame = load_window(
-        settings, ts(helsinki(start) - pd.Timedelta(days=HISTORY_DAYS)), helsinki(end)
+        settings,
+        ts(helsinki(start) - pd.Timedelta(days=HISTORY_DAYS)),
+        ts(helsinki(end) + pd.Timedelta(days=1)),
     )
     events = scan(frame, top_n=top_n, since=helsinki(start))
     if not events:
@@ -52,7 +56,8 @@ def cmd_scan(start: str, end: str, *, top_n: int) -> None:
     for e in events:
         print(
             f"{e.kind:9} {e.start.tz_convert(TZ):%Y-%m-%d %H:%M} {e.hours:>5} "
-            f"{e.peak_price:>8,.0f} {e.baseline_median:>9,.0f} {e.z:>6.1f}"
+            f"{e.peak_price:>8,.0f} {format_number(e.baseline_median, '{:,.0f}'):>9} "
+            f"{format_number(e.z, '{:+.1f}'):>6}"
         )
     print(
         f"\nInvestigate one with: uv run python cli.py investigate {events[0].peak_time.tz_convert(TZ):%Y-%m-%dT%H:%M}"

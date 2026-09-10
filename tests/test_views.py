@@ -1,13 +1,15 @@
-"""Rendering helpers in views.py. No Streamlit runtime is needed for these."""
+"""Rendering and turn handling in views.py. No Streamlit runtime is needed for these."""
 
 import math
 
 import pandas as pd
 import pytest
+import streamlit as st
 
 from copilot.detect import Event, EventKind
+from copilot.report import format_number
 from copilot.timeutil import ts
-from views import episode_label, events_table, number
+from views import MAX_TURNS, add_turn, episode_label, events_table, turn_by_id, turns
 
 
 def _event(*, median: float, z: float, price: float = -12.0) -> Event:
@@ -27,10 +29,10 @@ NO_HISTORY = _event(median=math.nan, z=math.nan)
 WITH_HISTORY = _event(median=60.0, z=-5.5)
 
 
-def test_number_falls_back_to_a_dash_when_there_is_no_baseline() -> None:
-    assert number(60.0, "{:,.0f}") == "60"
-    assert number(-5.5, "{:+.1f}") == "-5.5"
-    assert number(math.nan, "{:,.0f} EUR/MWh") == "—"
+def test_format_number_falls_back_to_a_dash_when_there_is_no_baseline() -> None:
+    assert format_number(60.0, "{:,.0f}") == "60"
+    assert format_number(-5.5, "{:+.1f}") == "-5.5"
+    assert format_number(math.nan, "{:,.0f} EUR/MWh") == "—"
 
 
 def test_events_table_survives_an_event_with_no_baseline() -> None:
@@ -63,3 +65,29 @@ def test_has_baseline_reflects_missing_history() -> None:
     assert WITH_HISTORY.has_baseline
     assert not NO_HISTORY.has_baseline
     assert pd.isna(NO_HISTORY.deviation)
+
+
+@pytest.fixture(autouse=True)
+def _clean_session() -> None:
+    st.session_state["turns"] = []
+
+
+def test_a_turn_keeps_its_id_when_older_turns_are_trimmed_away() -> None:
+    """Turns used to be addressed by list position, which shifts once trimming starts."""
+    add_turn({"role": "assistant", "kind": "scan", "events": ["first"]})
+    wanted = turns()[0]["id"]
+    for _ in range(MAX_TURNS):
+        add_turn({"role": "user", "kind": "text", "text": "filler"})
+
+    assert len(turns()) == MAX_TURNS
+    assert turn_by_id(wanted) is None  # trimmed away, and it says so instead of mis-pointing
+    newest = turns()[-1]
+    assert turn_by_id(newest["id"]) is newest
+
+
+def test_every_turn_gets_its_own_id() -> None:
+    for _ in range(5):
+        add_turn({"role": "user", "kind": "text", "text": "hi"})
+    ids = [t["id"] for t in turns()]
+    assert len(set(ids)) == 5
+    assert all(turn_by_id(i) is not None for i in ids)

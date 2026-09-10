@@ -145,3 +145,52 @@ def test_event_without_a_baseline_reports_it_and_ranks_last() -> None:
     assert not any(e.has_baseline for e in events)
     assert all(e.severity == 0.0 for e in events)
     assert [e.peak_price for e in events] == [-20.0, -5.0]  # deepest first
+
+
+def test_crash_in_a_low_price_regime_is_caught() -> None:
+    """A 93% collapse moves less than 50 EUR/MWh, so an absolute-only gate would miss it."""
+    idx = pd.date_range(ts("2023-12-01"), periods=40 * 24, freq="1h", name="time")
+    rng = np.random.default_rng(2)
+    price = pd.Series(40 + rng.normal(0, 2, len(idx)), index=idx, name="price_fi")
+    price.loc[ts("2024-01-04 12:00")] = 3.0  # -37 EUR/MWh: under min_abs_deviation, but -93%
+    events = find_events(price)
+    assert [e.kind for e in events] == [EventKind.CRASH]
+    assert events[0].peak_price == 3.0
+
+
+def test_a_spike_still_needs_the_absolute_gate() -> None:
+    """The relative gate is for crashes only; a 50% ramp off a normal baseline is not news."""
+    price = _series()
+    price.loc[ts("2024-01-04 12:00")] += 30.0  # ~50% of baseline, but under 50 EUR/MWh
+    assert find_events(price) == []
+
+
+def test_peak_is_never_taken_from_a_bridged_normal_hour() -> None:
+    """A bridged normal hour can be cheaper than the abnormal hours it sits between."""
+    idx = pd.date_range(ts("2023-12-01"), periods=40 * 24, freq="1h", name="time")
+    hours = idx.to_series().dt.hour.to_numpy()
+    rng = np.random.default_rng(3)
+    # 13:00 is naturally a cheap hour, the hours either side are expensive
+    level = np.where(hours == 13, 20.0, 200.0)
+    price = pd.Series(level + rng.normal(0, 2, len(idx)), index=idx, name="price_fi")
+    noon = ts("2024-01-04 12:00")
+    price.loc[noon] = 100.0  # -100 EUR/MWh off a 200 baseline: a crash
+    price.loc[noon + pd.Timedelta(hours=1)] = 18.0  # normal for 13:00, but the lowest price
+    price.loc[noon + pd.Timedelta(hours=2)] = 100.0  # a crash again
+
+    events = find_events(price)
+
+    assert len(events) == 1
+    assert events[0].hours == 3  # the normal 13:00 is inside the span
+    assert events[0].peak_price == 100.0  # ...but it is not the peak
+    assert events[0].peak_time in (noon, noon + pd.Timedelta(hours=2))
+    assert events[0].z <= -4
+
+
+def test_a_tiny_drop_off_a_tiny_baseline_is_not_a_crash() -> None:
+    """Half of a 2 EUR/MWh baseline is 1 EUR/MWh: the relative gate must not vanish with it."""
+    idx = pd.date_range(ts("2023-12-01"), periods=40 * 24, freq="1h", name="time")
+    rng = np.random.default_rng(4)
+    price = pd.Series(2.0 + rng.normal(0, 0.05, len(idx)), index=idx, name="price_fi")
+    price.loc[ts("2024-01-04 12:00")] = 0.5  # -75%, extreme z, but only -1.5 EUR/MWh
+    assert find_events(price) == []

@@ -73,7 +73,7 @@ history = turns()
 last_inv = max((i for i, t in enumerate(history) if t["kind"] == "investigation"), default=-1)
 for i, turn in enumerate(history):
     with st.chat_message(turn["role"]):
-        show_turn(i, turn, latest_investigation=i == last_inv)
+        show_turn(turn, latest_investigation=i == last_inv)
 
 if history:
     st.button("Start a new chat", on_click=clear_chat, icon=":material/delete_sweep:")

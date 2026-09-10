@@ -86,9 +86,14 @@ class FingridClient:
             rows.extend(body.get("data", []))
             pagination = body.get("pagination") or {}
             next_page = pagination.get("nextPage")
-            if not next_page:
+            if next_page is None:
                 break
-            params["page"] = next_page
+            # A server that keeps pointing at the current page (or back at an earlier one)
+            # would loop here forever, re-taking `self._lock` and its throttle sleep on every
+            # pass and starving every other Fingrid fetch of throughput. Stop instead.
+            if int(next_page) <= int(params["page"]):
+                break
+            params["page"] = int(next_page)
         return _to_series(
             rows, name=Dataset(dataset).name.lower() if dataset in Dataset else str(dataset)
         )

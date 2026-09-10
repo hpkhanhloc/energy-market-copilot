@@ -48,6 +48,12 @@ def cached_frame(
         log.debug("cache hit %s", path.name)
         return pd.read_parquet(path)
     frame = fetch()
+    if frame.empty:
+        # One empty-but-200 answer would otherwise be stored, and `ttl_for` returns None for
+        # any month older than RECENT_WINDOW, so `_fresh` would call it fresh forever. The
+        # only recovery would be deleting the file by hand.
+        log.warning("empty result for %s: not cached", key)
+        return frame
     cache_dir.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(path)
     log.debug("cache store %s (%d rows)", path.name, len(frame))

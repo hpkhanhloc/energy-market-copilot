@@ -88,3 +88,19 @@ def test_cached_range_fetches_each_month_once_and_clips(tmp_path: Path) -> None:
     assert len(second) == 24
     assert (tmp_path / "t_202312.parquet").exists()
     assert (tmp_path / "t_202401.parquet").exists()
+
+
+def test_an_empty_result_is_not_cached(tmp_path: Path) -> None:
+    """One empty-but-200 answer would otherwise poison an old month forever."""
+    results = [pd.DataFrame(), _frame(2.0)]
+
+    def fetch() -> pd.DataFrame:
+        return results.pop(0)
+
+    first = cached_frame("k", fetch, cache_dir=tmp_path)
+    assert first.empty
+    assert not (tmp_path / "k.parquet").exists()
+
+    second = cached_frame("k", fetch, cache_dir=tmp_path)  # the next call gets real data
+    pd.testing.assert_frame_equal(second, _frame(2.0))
+    assert (tmp_path / "k.parquet").exists()

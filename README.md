@@ -54,26 +54,31 @@ physical flows per border. Fingrid gives real-time wind, nuclear, hydro, product
 consumption forecast and the imbalance price. Everything is resampled to hourly means on a UTC
 index and shown in Helsinki time.
 
-**Spotting an event (plain code):** every hour is compared with the same *Helsinki local* hour
-on recent days of the same type, weekday or weekend, using a median and MAD (a robust standard
+**Spotting an event (plain code):** every hour is compared with the same *Helsinki local* hour on
+recent days of the same type, weekday or weekend, using a median and MAD (a robust standard
 deviation). Local hours, because the daily price shape follows the clock on the wall and a UTC
 bucket would shift by an hour at every DST switch; day types kept apart, because Sunday midday is
-nothing like Tuesday midday. The lookback is 28 calendar days, which holds about 20 weekdays and
-8 weekend days. An hour is abnormal when its robust z is at least 4 *and* it moved at least
-50 EUR/MWh; a price at or below zero is always an event, even when there is too little history to
-build a baseline (the report then says so instead of printing a number). Abnormal hours merge into
-one episode across up to one normal hour in between, and episodes are ranked by peak |z| grown by
-episode length, so a long event outranks a one-hour blip. A user can also ask about any hour; if
-it is not abnormal the report says so and analyses it anyway.
+nothing like Tuesday midday. The lookback is 28 calendar days, which holds about 20 weekdays and 8
+weekend days. An hour is abnormal when its robust z is at least 4 *and* it moved at least 50
+EUR/MWh, or, for a crash only, gave up at least half its baseline and at least 10 EUR/MWh: a crash
+is bounded by its baseline while a spike is not, so a collapse from 40 to 3 EUR/MWh moves under 50
+EUR/MWh and an absolute-only gate would miss it, while the 10 EUR/MWh floor keeps the relative gate
+from vanishing along with the baseline. A price at or below zero is always an event, even when there
+is too little history to build a baseline (the report then says so instead of printing a number).
+Abnormal hours merge into one episode across up to one normal hour in between, and episodes are
+ranked by peak |z| grown by episode length, so a long event outranks a one-hour blip. A user can
+also ask about any hour; if it is not abnormal the report says so and analyses it anyway.
 
-**Checking drivers (plain code):** each driver is one function that returns a number, its
-baseline, and one of three verdicts: *supports*, *does not support*, *not enough data*. Support
-means the series moved in the direction that would push the price the way it went, by robust
-z >= 2 or by 20% of baseline. Drivers: day-ahead wind forecast (what the auction actually saw),
-actual wind, nuclear, load, imports from Sweden (judged on SE1+SE3 because Estonia often flips
-direction and hides a Nordic shortfall in the total), neighbouring prices (regional move versus
-Finland alone), and residual load (load minus wind minus nuclear). Missing data becomes "not
-enough data", never a guess.
+**Checking drivers (plain code):** each driver is one function that returns a number, its baseline,
+and one of three verdicts: *supports*, *does not support*, *not enough data*. Support means the
+series moved in the direction that would push the price the way it went, by robust z >= 2, or by 20%
+of baseline while still being at least 1 z from normal: a big-looking share of a wide baseline can
+be an entirely ordinary hour, and calling that "supports" would state a hypothesis the data does not
+back. Drivers: day-ahead wind forecast (what the auction actually saw), actual wind, nuclear, load,
+imports from Sweden (judged on SE1+SE3 because Estonia often flips direction and hides a Nordic
+shortfall in the total), neighbouring prices (a regional move versus Finland alone, which needs a
+strict majority of the neighbours that have data, and says how many of how many moved), and residual
+load (load minus wind minus nuclear). Missing data becomes "not enough data", never a guess.
 
 **Where the LLM is used, and where it is not:** the LLM never sees raw data, never picks the
 event, never runs a check, and has no tools. It is called three times at most, each with a typed

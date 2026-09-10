@@ -5,6 +5,7 @@ a typed `Narrative` whose numbers all exist in those facts (checked by `unknown_
 """
 
 import logging
+import math
 import re
 from collections.abc import Iterable
 
@@ -110,6 +111,15 @@ def fallback_narrative(inv: Investigation) -> Narrative:
     )
 
 
+NO_VALUE = "—"
+"""Printed where an hour has too little history for a baseline, so the number is NaN."""
+
+
+def format_number(value: float, spec: str) -> str:
+    """`spec.format(value)`, or `NO_VALUE` when there is no baseline behind the number."""
+    return NO_VALUE if math.isnan(value) else spec.format(value)
+
+
 NUMBER = re.compile(r"(?<![\w.])[-+]?\d[\d,]*(?:\.\d+)?\s?%?")
 COUNT_CONTEXT = re.compile(
     r"(?:\bn\s*=\s*|\b(?:of|top)\s+)?(?P<num>\b\d{1,2}\b)(?:\s*(?:h\b|hours?\b|days?\b|drivers?\b|checks?\b|of\b))?"
@@ -133,13 +143,18 @@ def unknown_numbers(narrative: Narrative, facts: str) -> list[str]:
 
 def unknown_numbers_in_text(text: str, facts: str) -> list[str]:
     """Numbers in `text` that do not appear in the facts text (possible hallucinations)."""
-    allowed = {_norm(n) for n in NUMBER.findall(facts)}
-    allowed |= _rounded(allowed)  # "z = 30.3" may be quoted as "30"
+    pools = _sign_pools(facts)
+    anywhere = pools["-"] | pools["+"] | pools[""]
     counts = _count_numbers(text)
     found: list[str] = []
     for raw in NUMBER.findall(text):
         value = _norm(raw)
-        if value in allowed:
+        sign = raw.strip()[0] if _has_sign(raw) else ""
+        # An unsigned number only has to exist in the facts ("05 Jan" is "5 Jan"). A number the
+        # model signed itself must match a fact carrying that same sign, or one carrying none:
+        # facts that only ever write "-1,816" must never be quoted as "+1,816", because a
+        # flipped sign is the worst numeric error this tool can make.
+        if value in (anywhere if not sign else pools[sign] | pools[""]):
             continue
         if not value.endswith("%") and _small_count(value) and value in counts:
             continue
@@ -192,3 +207,22 @@ def _norm(number: str) -> str:
     """Comparable form: no separators, whitespace, sign or leading zeros (05 Jan == 5 Jan)."""
     core = "".join(number.split()).replace(",", "").lstrip("+-")
     return core.lstrip("0") or "0" if not core.startswith("0.") else core
+
+
+def _has_sign(number: str) -> bool:
+    return number.strip().startswith(("+", "-"))
+
+
+def _sign_pools(facts: str) -> dict[str, set[str]]:
+    """Magnitudes in the facts, grouped by the sign they were written with ("-", "+", or none).
+
+    A magnitude the facts write bare carries its direction in words ("above normal by 2,383 MW"),
+    so prose may sign it either way. One the facts only ever write signed ("-1,816", "z = +27.9")
+    has to keep that sign.
+    """
+    pools: dict[str, set[str]] = {"-": set(), "+": set(), "": set()}
+    for raw in NUMBER.findall(facts):
+        pools[raw.strip()[0] if _has_sign(raw) else ""].add(_norm(raw))
+    for pool in pools.values():
+        pool |= _rounded(pool)  # "z = 30.3" may be quoted as "30"
+    return pools

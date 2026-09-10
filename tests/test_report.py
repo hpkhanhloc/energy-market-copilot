@@ -256,3 +256,30 @@ def test_narrate_writes_trace(investigation: Investigation, tmp_path) -> None:
     assert call.kind == "narrative"
     assert call.guard == "unknown_numbers"
     assert call.fallback is True
+
+
+def test_number_guard_catches_a_flipped_sign() -> None:
+    """Reporting a crash's deviation as a rise is the worst numeric error this tool can make."""
+    facts = "- Deviation: -1,816 EUR/MWh, robust z = -27.9"
+    assert unknown_numbers_in_text("the price moved -1,816 EUR/MWh", facts) == []
+    assert unknown_numbers_in_text("the price moved +1,816 EUR/MWh", facts) == ["+1,816"]
+    assert unknown_numbers_in_text("robust z = +27.9", facts) == ["+27.9"]
+
+
+def test_number_guard_stays_lenient_about_an_unsigned_number() -> None:
+    """Facts write "-55"; prose writes "fell 55 below normal". Both mean the same thing."""
+    facts = "- Deviation: -55 EUR/MWh on 05 Jan"
+    assert unknown_numbers_in_text("the price fell 55 EUR/MWh on 5 Jan", facts) == []
+
+
+def test_number_guard_rounds_a_signed_number_the_same_way() -> None:
+    facts = "- Deviation: -54.6 EUR/MWh"
+    assert unknown_numbers_in_text("about -55 EUR/MWh", facts) == []
+    assert unknown_numbers_in_text("about +55 EUR/MWh", facts) == ["+55"]
+
+
+def test_number_guard_lets_prose_sign_a_magnitude_the_facts_left_bare() -> None:
+    """Driver facts put the direction in words: "above normal by 2,383 MW". Either sign is fine."""
+    facts = "Consumption: 13,710 MW vs a baseline of 11,327 MW (above normal by 2,383 MW, 21%)."
+    assert unknown_numbers_in_text("consumption ran +2,383 MW over normal", facts) == []
+    assert unknown_numbers_in_text("residual demand was -2,383 MW off normal", facts) == []

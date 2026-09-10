@@ -14,6 +14,7 @@ Two things matter for correctness:
   demand, so pooling them pushes every weekend hour toward "crash".
 """
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -85,13 +86,14 @@ def baseline_frame(series: pd.Series, config: BaselineConfig | None = None) -> p
 def _bucket_stats(part: pd.DataFrame, config: BaselineConfig, *, weekend: bool) -> pd.DataFrame:
     """median/mad/n for one day type, from prior days of that same type only."""
     wide = part.pivot_table(index="date", columns="hour", values="value", aggfunc="mean")
-    # shift(1): today's value is never part of its own baseline
-    window = wide.shift(1).rolling(config.window(weekend=weekend), min_periods=1)
+    prior = wide.shift(1)  # today's value is never part of its own baseline
+    days = config.window(weekend=weekend)
+    window = prior.rolling(days, min_periods=1)
     count = _lookup(window.count(), part)
     stats = pd.DataFrame(
         {
             "median": _lookup(window.median(), part),
-            "mad": _lookup(window.apply(_mad, raw=True), part),
+            "mad": _lookup(_rolling_mad(prior, days), part),
             "n": count.fillna(0),
         }
     )
@@ -99,11 +101,22 @@ def _bucket_stats(part: pd.DataFrame, config: BaselineConfig, *, weekend: bool) 
     return stats
 
 
-def _mad(values: np.ndarray) -> float:
-    values = values[~np.isnan(values)]
-    if values.size == 0:
-        return np.nan
-    return float(np.median(np.abs(values - np.median(values))))
+def _rolling_mad(wide: pd.DataFrame, days: int) -> pd.DataFrame:
+    """Rolling median absolute deviation over `days` rows, per column.
+
+    `rolling().apply()` would call back into Python once per window per column. An
+    investigation runs this over the price plus every driver series, ~15 passes, and that
+    callback was the slowest thing in it.
+    """
+    values = wide.to_numpy(dtype="float64")
+    padded = np.full((len(values) + days - 1, values.shape[1]), np.nan)
+    padded[days - 1 :] = values
+    windows = np.lib.stride_tricks.sliding_window_view(padded, days, axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN windows are expected
+        medians = np.nanmedian(windows, axis=-1)
+        mad = np.nanmedian(np.abs(windows - medians[..., None]), axis=-1)
+    return pd.DataFrame(mad, index=wide.index, columns=wide.columns)
 
 
 def _lookup(wide: pd.DataFrame, table: pd.DataFrame) -> pd.Series:

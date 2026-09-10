@@ -23,6 +23,21 @@ class DetectConfig:
     """Robust z beyond which an hour is abnormal."""
     min_abs_deviation: float = 50.0
     """EUR/MWh: ignore tiny moves even if statistically odd (calm summer nights)."""
+    min_relative_crash: float = 0.5
+    """A crash also counts when it gives up this share of its baseline.
+
+    A crash is bounded by its own baseline; a spike is not. So an absolute-only gate is unfair
+    to crashes: in a low-price regime a collapse from 40 to 3 EUR/MWh moves just 37 EUR/MWh and
+    stays invisible, though it is a 93% collapse. Spikes keep the absolute gate alone, where a
+    relative one would flag any ordinary evening ramp.
+    """
+    min_crash_deviation: float = 10.0
+    """EUR/MWh a crash must move even when it clears `min_relative_crash`.
+
+    Without it the relative gate vanishes as the baseline does: half of a 2 EUR/MWh baseline is
+    1 EUR/MWh, so an economically meaningless drop would be reported as a crash whenever z
+    happened to be extreme. Prices at or below zero are still always an event.
+    """
     negative_price: float = 0.0
     """Price at or below this is always an event of kind NEGATIVE."""
     max_gap_hours: int = 1
@@ -72,8 +87,13 @@ def score_prices(price: pd.Series, config: DetectConfig | None = None) -> pd.Dat
     config = config or DetectConfig()
     frame = baseline_frame(price, config.baseline)
     deviation = frame["value"] - frame["median"]
+    drop = -deviation
+    big_drop = (drop >= config.min_abs_deviation) | (
+        (drop >= config.min_relative_crash * frame["median"].abs())
+        & (drop >= config.min_crash_deviation)
+    )
     spike = (frame["z"] >= config.z_threshold) & (deviation >= config.min_abs_deviation)
-    crash = (frame["z"] <= -config.z_threshold) & (deviation <= -config.min_abs_deviation)
+    crash = (frame["z"] <= -config.z_threshold) & big_drop
     negative = frame["value"] <= config.negative_price
     kind = pd.Series([None] * len(frame), index=frame.index, dtype="object")
     kind[crash] = EventKind.CRASH
@@ -150,7 +170,13 @@ def _make_event(rows: pd.DataFrame, *, flagged: bool) -> Event:
     if rows["value"].isna().all():
         raise ValueError(f"no price data at {rows.index[0]} (gap in the source)")
     kind = _kind_of(rows)
-    peak = rows["value"].idxmax() if kind is EventKind.SPIKE else rows["value"].idxmin()
+    # The peak must come from an abnormal hour. `_groups` folds up to `max_gap_hours` normal
+    # hours into the span, and one of those can hold a more extreme price than the abnormal
+    # hours around it (a different hour of day has a different natural spread). Picking it
+    # would describe an ordinary hour, with its ordinary z, as the whole episode.
+    abnormal = rows[rows["kind"].notna()]
+    candidates = rows if abnormal.empty else abnormal  # empty only for an unflagged hour
+    peak = candidates["value"].idxmax() if kind is EventKind.SPIKE else candidates["value"].idxmin()
     index = datetime_index(rows)
     return Event(
         start=index[0],

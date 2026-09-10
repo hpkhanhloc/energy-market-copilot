@@ -122,3 +122,29 @@ def test_gives_up_after_repeated_429() -> None:
     client = FingridClient("key", session=session, sleep=lambda _: None, clock=lambda: 0.0)
     with pytest.raises(FingridError, match="429"):
         client.fetch(Dataset.WIND, START, END)
+
+
+def test_pagination_stops_if_the_server_stops_moving_forward() -> None:
+    """A nextPage that does not advance would spin forever while holding the client lock."""
+    session = FakeSession(
+        [
+            _page([("2024-01-05T15:00:00.000Z", 100.0)], 2),
+            _page([("2024-01-05T15:03:00.000Z", 110.0)], 2),  # same page again
+        ]
+    )
+    client = FingridClient("key", session=session, sleep=lambda _: None, clock=lambda: 0.0)
+    series = client.fetch(Dataset.WIND, START, END)
+
+    assert series.tolist() == [100.0, 110.0]
+    assert [c["params"]["page"] for c in session.calls] == [1, 2]
+
+
+def test_pagination_stops_if_the_server_points_backwards() -> None:
+    session = FakeSession(
+        [
+            _page([("2024-01-05T15:00:00.000Z", 100.0)], 2),
+            _page([("2024-01-05T15:03:00.000Z", 110.0)], 1),
+        ]
+    )
+    client = FingridClient("key", session=session, sleep=lambda _: None, clock=lambda: 0.0)
+    assert client.fetch(Dataset.WIND, START, END).tolist() == [100.0, 110.0]
