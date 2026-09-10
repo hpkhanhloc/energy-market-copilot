@@ -14,6 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent
 
+from copilot.report import banned_phrases, unknown_numbers_in_text
 from copilot.timeutil import helsinki
 from copilot.trace import Guard, LlmCall, now_iso, record, timed
 
@@ -141,6 +142,18 @@ def parse_intent(
         _trace(model, prompt, repr(result), latency, guard="exception")
         return Reply(text=FALLBACK_TEXT)
     intent: Intent = result.output
+    guard: Guard | None = None
+    if isinstance(intent, Reply):
+        # Reply text reaches the screen as-is: numbers must come from the context or the
+        # user's own words, and causal wording is out.
+        if unknown_numbers_in_text(intent.text, prompt):
+            guard = "unknown_numbers"
+        elif banned_phrases(intent.text):
+            guard = "banned_phrase"
+        if guard:
+            log.warning("routing reply failed guard %s: %r", guard, intent.text)
+            _trace(model, prompt, intent.model_dump_json(), latency, guard=guard)
+            return Reply(text=SCOPE_TEXT)
     _trace(model, prompt, intent.model_dump_json(), latency, guard=None)
     return intent
 

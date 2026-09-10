@@ -10,7 +10,10 @@ Step-by-step build plan with checkboxes: `docs/PLAN.md`. Tick steps there as the
 
 - Market: Finland. Use case: **day-ahead spot price** anomalies. Imbalance price is a stretch goal.
 - First user: an energy-market analyst who investigates price moves by hand today.
-- Interface: `copilot/` library is the core. `app.py` (Streamlit) is the demo. `cli.py` is a thin backup.
+- Interface: `copilot/` library is the core. `app.py` (Streamlit) is a chat demo: one LLM call maps
+  the user's words to a typed intent (`Scan` / `Investigate` / `Ask` / `Reply`), plain code runs it,
+  the same tables and charts render in the chat bubble. Starter chips and table-row clicks never
+  call the LLM. `views.py` holds the Streamlit glue. `cli.py` is a thin backup.
 - No cloud deploy, no styling, no auth. Local only.
 - Must demo at least two investigations. Known good cases: 2024-01-05 19:00 Helsinki (1896 EUR/MWh day-ahead spike),
   2023-12-16 19:00 to 12-17 07:00 Helsinki (13 h at or below 0 EUR/MWh, windy night).
@@ -26,13 +29,23 @@ Step-by-step build plan with checkboxes: `docs/PLAN.md`. Tick steps there as the
 
 - **Plain code, deterministic, tested:** data fetch + cache, anomaly detection, every driver check,
   charts. These must give the same answer every run.
-- **LLM (via Pydantic AI, provider-agnostic):** only turns the structured check results into a short
-  readable report. It never sees raw time series, never picks the event, never invents numbers.
+- **LLM (via Pydantic AI, provider-agnostic):** three calls, all typed, all guarded, all traced.
   Model comes from `COPILOT_MODEL` env (default `anthropic:claude-sonnet-5`); swapping provider is
-  an env change, not a code change. Output is a typed pydantic model with separate `facts`,
-  `hypotheses`, `insufficient` lists, not free text. Tests use `TestModel` and set
-  `models.ALLOW_MODEL_REQUESTS = False`. No agents / tool calling in the MVP: evidence must be
-  reproducible run to run.
+  an env change, not a code change. Tests use `TestModel` and set
+  `models.ALLOW_MODEL_REQUESTS = False`. No agents / tool calling: the LLM never sees raw time
+  series, never picks the event, never runs a check. Evidence is reproducible run to run.
+  1. `copilot/intent.py` routing: user text + context (today, data reach, last hour, last range,
+     short transcript) -> `Scan | Investigate | Ask | Reply`. `guard_intent` re-checks dates
+     (60-day cap, data reach, future). Any failure becomes a `Reply`.
+  2. `copilot/llm.py` narrative: facts text -> `Narrative(facts, hypotheses, insufficient,
+     summary)`. Guards: unknown numbers, causal words (`caused`, `because`, `due to`, ...),
+     invented `insufficient` items. Guard hit -> deterministic `fallback_narrative`.
+  3. `copilot/chat.py` follow-up: question + facts text -> `Answer(text, source, hour_not_in_report)`.
+     Same number and causal guards; guard hit -> fixed safe text. `source="general"` is shown
+     with a "general knowledge, not from your data" label.
+  Every call appends one line to `data/logs/llm.jsonl` (`copilot/trace.py`: kind, guard,
+  fallback, latency). `make eval` scores routing on `tests/fixtures/intents.jsonl` with the real
+  model (not in CI; last run 96% on 28 cases).
 
 ## Data sources (verified 2026-09-10)
 
@@ -59,7 +72,9 @@ Only the two sources named in the assignment. Both keys are in `.env` and verifi
   - `copilot/data/` fetch + cache per source
   - `copilot/detect.py` anomaly finder
   - `copilot/drivers/` one file per driver check, each returns a `DriverResult`
-  - `copilot/report.py` LLM narrative
+  - `copilot/report.py` facts text, fallback narrative, number + causal-word guards
+  - `copilot/llm.py`, `copilot/intent.py`, `copilot/chat.py` the three LLM calls
+  - `copilot/trace.py` JSONL log of every LLM call
   - `copilot/plots.py` charts
   - `tests/` pytest, offline only, fixtures under `tests/fixtures/`
 
@@ -69,7 +84,7 @@ Only the two sources named in the assignment. Both keys are in `.env` and verifi
   CSV/parquet files or monkeypatch the fetcher.
 - Timestamps: always tz-aware, store UTC, show `Europe/Helsinki`.
 - Type hints on public functions. Small functions. No classes unless state is real.
-- Keep `app.py` under ~150 lines. Logic lives in `copilot/`, not in the UI.
+- Keep `app.py` under ~150 lines. Streamlit rendering goes in `views.py`; logic lives in `copilot/`.
 - Secrets only in `.env` (git-ignored). Never hardcode keys.
 - Hooks in `.claude/hooks/` auto-format, lint, type-check and run tests after every edit, and block
   ending a turn with red checks. If a hook fails, fix the code, do not disable the hook.

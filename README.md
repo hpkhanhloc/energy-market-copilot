@@ -9,11 +9,12 @@ checking"*. Facts come from code. Hypotheses are labelled as hypotheses. Nothing
 ```bash
 make setup                      # uv sync + git hooks (needs uv, installs Python 3.14.7)
 cp .env.example .env            # add FINGRID_API_KEY, ENTSOE_API_KEY, and an LLM key
-make app                        # Streamlit UI at http://localhost:8501
+make app                        # chat UI at http://localhost:8501
 uv run python cli.py scan 2023-12-08 2024-01-08          # list abnormal episodes
 uv run python cli.py investigate 2024-01-05T19:00         # explain one hour (Helsinki time)
 uv run python cli.py investigate 2024-01-05T19:00 --no-llm --charts out/
 make check                      # format, lint, type-check, tests (what CI runs)
+make eval                       # score the chat router on 28 golden prompts (real model)
 ```
 
 The LLM is optional. `COPILOT_MODEL` picks any provider Pydantic AI knows
@@ -22,6 +23,13 @@ report written by code. The ENTSO-E API answers in 20 to 40 seconds per call; th
 a new month takes a minute or two, then everything is cached per calendar month under
 `data/cache/`. Two demo months (Dec 2023, Jan 2024) are worth warming before a demo:
 `uv run python scripts/warm_cache.py 2023-12-01 2024-02-01`.
+
+**Using the chat.** Three starter chips cover the demo (the 1,896 EUR/MWh spike on 5 Jan 2024
+19:00, the negative night of 16 Dec 2023, a scan of 8 Dec to 8 Jan); they run plain code, no
+LLM. Or type: *"what happened on 5 Jan 2024 at 19:00"*, *"anything odd in December 2023?"*,
+then follow up with *"the hour before that"*, *"what is residual load?"*, *"why does the report
+say imports do not support?"*. A scan answers with a table; clicking a row opens the
+investigation. Off-topic questions get a one-line "I only do the Finnish day-ahead price".
 
 ## Who it is for, what it does, what it leaves out
 
@@ -62,10 +70,24 @@ Finland alone), and residual load (load minus wind minus nuclear). Missing data 
 enough data", never a guess.
 
 **Where the LLM is used, and where it is not:** the LLM never sees raw data, never picks the
-event, and never runs a check. It receives the deterministic facts text and must return a typed
-object with separate `facts`, `hypotheses` and `insufficient` lists. Every number in its answer is
-checked against the facts; if it invents one, the code-written narrative is used instead. No
-agents: the evidence has to be identical run to run, or you cannot measure whether it improves.
+event, never runs a check, and has no tools. It is called three times at most, each with a typed
+output and a code guard behind it:
+
+1. *Routing.* Your words plus a small context block (today, the cached date range, the last hour
+   and range on screen) become one of `Scan`, `Investigate`, `Ask`, `Reply`. Code re-checks every
+   date (60-day cap, data reach, no future). Any model failure becomes a `Reply`.
+2. *Narrative.* The deterministic facts text becomes a typed object with separate `facts`,
+   `hypotheses` and `insufficient` lists. Every number is checked against the facts; causal words
+   ("caused", "because", "due to") are rejected; if either trips, the code-written narrative is
+   shown instead.
+3. *Follow-up answers.* A question about the report on screen is answered from the facts text
+   with the same two guards. Term definitions are labelled "general knowledge, not from your
+   data". Hours the report does not cover get "not in the current report, ask me to investigate
+   it", never a guess.
+
+Every call writes one line to `data/logs/llm.jsonl` (kind, guard hit, fallback used, latency),
+and the sidebar shows the last call. No agents: the evidence has to be identical run to run, or
+you cannot measure whether it improves.
 
 ## How I would know it is getting better
 
@@ -76,8 +98,10 @@ series was missing.
 
 **System side:** a regression set of labelled events with expected verdicts (below); detection
 precision on a month of history (flagged hours an analyst agrees with) and recall on known
-events; the rate at which the LLM narrative is rejected for invented numbers; cache hit rate and
-seconds per investigation.
+events; routing accuracy on the golden prompt set (`make eval`: 28 prompts, 96% with
+`claude-sonnet-5`, the one miss is a bare "explain the 5th" that should ask back); the share of
+LLM calls that hit a guard, read straight from `data/logs/llm.jsonl`; p50 latency per call
+(about 2.4 s routing, 6 s narrative); cache hit rate and seconds per investigation.
 
 **Concrete test cases (in `tests/`, run offline on a fixture):**
 1. 2024-01-05 19:00 is the top event of Dec 8 to Jan 8; load, Swedish imports and neighbouring
@@ -88,6 +112,9 @@ seconds per investigation.
 4. A synthetic spike with normal drivers everywhere gives zero supporting drivers (no false
    stories).
 5. A narrative containing a number that is not in the facts is rejected.
+6. A narrative or answer that says "caused" or "because" is rejected.
+7. A 61-day scan, a date before the cached range, or a future hour never reaches the data layer.
+8. A follow-up answer with an invented number falls back to a fixed safe text.
 
 ## What I would build next
 

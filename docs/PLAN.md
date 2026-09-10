@@ -96,8 +96,30 @@ Goal: each check = one function, one number, one verdict. No LLM.
 - [x] Fresh-clone test: `make setup && make check` on clean checkout (84 tests pass)
 - [x] Commit, tag `v0.1`
 
+## Step 8: Chat UI (v0.2)
+
+Goal: the user types "something odd happened"; the LLM only routes, plain code answers.
+
+- [x] `copilot/report.py`: `unknown_numbers_in_text`, `banned_phrases` (caused / because / due to)
+- [x] `copilot/trace.py`: one JSON line per LLM call (kind, guard, fallback, latency)
+- [x] `copilot/intent.py`: `Scan | Investigate | Ask | Reply`, context block, `guard_intent`
+- [x] `copilot/chat.py`: follow-up answers from the facts text, same guards
+- [x] `views.py` + `app.py`: chat loop, starter chips (no LLM), clickable scan table (no LLM),
+      collapsed older investigations, sidebar debug of the last LLM call
+- [x] Manual run: both demo chips, row click, term question, off-topic, relative date
+- [x] Commit
+
+## Step 9: Eval + docs
+
+- [x] `tests/fixtures/intents.jsonl` (28 cases) + `scripts/eval_intents.py` + `make eval`
+      (real model, not in CI). First run 86%, after prompt fix 96%.
+- [x] Offline tests for every guard path with `TestModel`
+- [x] `CLAUDE.md`, `README.md`, this plan
+- [x] Commit, tag `v0.2`
+
 ## Stretch (only if time)
 
 - [ ] Fingrid imbalance price (319) as second use case
 - [ ] ENTSO-E outages (A80) driver if token arrives
-- [ ] Auto-scan "latest interesting day" button
+- [ ] Suggested next questions after each answer (chips, still no LLM tool calls)
+- [ ] Auto-scan "latest interesting day" chip

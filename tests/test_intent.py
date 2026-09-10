@@ -1,12 +1,14 @@
 from datetime import date, datetime
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from pydantic_ai import models
 from pydantic_ai.models.test import TestModel
 
 from copilot.intent import (
     FALLBACK_TEXT,
+    SCOPE_TEXT,
     Ask,
     Context,
     Investigate,
@@ -49,6 +51,29 @@ def test_data_reach_caps_at_today_and_handles_empty(tmp_path: Path) -> None:
     assert data_reach(tmp_path, TODAY)[1] == TODAY
 
 
+def test_data_reach_caps_at_today_when_last_cache_month_is_in_the_future(tmp_path: Path) -> None:
+    # a stale/pre-warmed cache file for a month after today must not push reach_end past today
+    (tmp_path / "entsoe_price_FI_202311.parquet").write_bytes(b"")
+    (tmp_path / "entsoe_price_FI_202612.parquet").write_bytes(b"")
+    assert data_reach(tmp_path, TODAY) == (date(2023, 11, 1), TODAY)
+
+
+def test_render_context_with_no_transcript_omits_conversation_lines(ctx: Context) -> None:
+    text = render_context(ctx)
+    assert "today: 2026-09-10" in text
+    assert "data available:" in text
+    assert "last investigated" not in text
+    assert "last scanned" not in text
+    assert "recent conversation" not in text
+
+
+def test_investigate_validator_accepts_tz_aware_pandas_timestamp() -> None:
+    when = pd.Timestamp("2024-01-05 17:00", tz="UTC")  # winter UTC, +2h in Helsinki
+    inv = Investigate(when=when)  # ty: ignore[invalid-argument-type]
+    assert inv.when.isoformat() == "2024-01-05T19:00:00+02:00"
+    assert inv.when.tzinfo is not None
+
+
 def test_render_context_lists_anchors(ctx: Context) -> None:
     full = Context(
         today=ctx.today,
@@ -80,6 +105,24 @@ def test_parse_intent_each_union_member(ctx: Context) -> None:
         question="what is residual load"
     )
     assert parse(3, {"text": "I only do power prices"}, ctx) == Reply(text="I only do power prices")
+
+
+def test_parse_intent_guards_reply_with_unknown_number(ctx: Context) -> None:
+    # a Reply must never surface a market number that is not in the prompt it was given
+    out = parse(3, {"text": "The peak was 1,500 EUR/MWh."}, ctx)
+    assert out == Reply(text=SCOPE_TEXT)
+    call = last_call()
+    assert call is not None
+    assert call.guard == "unknown_numbers"
+    assert call.fallback is True
+
+
+def test_parse_intent_guards_reply_with_causal_wording(ctx: Context) -> None:
+    out = parse(3, {"text": "That happened because of low wind."}, ctx)
+    assert out == Reply(text=SCOPE_TEXT)
+    call = last_call()
+    assert call is not None
+    assert call.guard == "banned_phrase"
 
 
 def test_parse_intent_records_trace(ctx: Context) -> None:

@@ -193,6 +193,23 @@ def test_unknown_numbers_in_text(investigation: Investigation) -> None:
     assert unknown_numbers_in_text("Peak 2,500 EUR/MWh", facts) == ["2,500"]
 
 
+def test_unknown_numbers_in_text_allows_count_context_numbers() -> None:
+    facts = "Peak: 1,896 EUR/MWh."
+    text = "3 of 7 drivers support this reading, with a peak of 1,896 EUR/MWh."
+    assert unknown_numbers_in_text(text, facts) == []
+
+
+def test_unknown_numbers_in_text_still_flags_values_that_look_like_counts() -> None:
+    # a small integer with no count context (no "h"/"days"/"of"/"drivers" ...) is not exempt
+    facts = "Peak: 1,896 EUR/MWh."
+    assert unknown_numbers_in_text("Wind was 25 MW below normal.", facts) == ["25"]
+
+
+def test_banned_phrases_is_case_insensitive() -> None:
+    assert banned_phrases("Prices rose BECAUSE of low wind.") == ["because"]
+    assert banned_phrases("This was Due To a cold snap.") == ["due to"]
+
+
 def test_narrate_falls_back_on_causal_wording(investigation: Investigation) -> None:
     agent = build_agent("test")
     output = {
@@ -204,6 +221,27 @@ def test_narrate_falls_back_on_causal_wording(investigation: Investigation) -> N
     with agent.override(model=TestModel(custom_output_args=output)):
         narrative = narrate(investigation, model="test", agent=agent)
     assert "not proof of cause" in narrative.summary
+
+
+def test_narrate_guard_order_unknown_number_checked_before_causal_wording(
+    investigation: Investigation,
+) -> None:
+    """When a model output has both problems, the number guard must fire, not the phrase guard."""
+    from copilot.trace import last_call
+
+    agent = build_agent("test")
+    output = {
+        "summary": "Price hit 2,500 EUR/MWh because of low wind.",
+        "facts": [],
+        "hypotheses": [],
+        "insufficient": [],
+    }
+    with agent.override(model=TestModel(custom_output_args=output)):
+        narrative = narrate(investigation, model="test", agent=agent)
+    assert "not proof of cause" in narrative.summary
+    call = last_call()
+    assert call is not None
+    assert call.guard == "unknown_numbers"
 
 
 def test_narrate_writes_trace(investigation: Investigation, tmp_path) -> None:

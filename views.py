@@ -46,7 +46,7 @@ VERDICT_GROUPS = (
     (
         Verdict.SUPPORTS,
         "Evidence supports",
-        "These moved the way that pushes the price where it went.",
+        "These moved in the direction consistent with the price move.",
     ),
     (
         Verdict.DOES_NOT_SUPPORT,

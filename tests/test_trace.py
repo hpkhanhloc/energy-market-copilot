@@ -45,6 +45,22 @@ def test_record_never_raises(tmp_path: Path) -> None:
     record(BASE, blocker / "cannot" / "nest.jsonl")  # parent is a file
 
 
+def test_last_call_skips_blank_lines(tmp_path: Path) -> None:
+    path = tmp_path / "llm.jsonl"
+    record(BASE, path)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write("\n   \n")  # trailing blank lines, as a partial/flushed write might leave
+    last = last_call(path)
+    assert last is not None
+    assert last.kind == "narrative"
+
+
+def test_last_call_returns_none_when_file_is_all_blank_lines(tmp_path: Path) -> None:
+    path = tmp_path / "llm.jsonl"
+    path.write_text("\n\n   \n")
+    assert last_call(path) is None
+
+
 def test_timed_returns_result_or_exception() -> None:
     out, ms = timed(lambda: 3)
     assert out == 3
