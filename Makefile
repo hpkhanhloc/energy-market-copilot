@@ -1,4 +1,4 @@
-.PHONY: eval setup fmt lint type test check app cli
+.PHONY: eval backtest setup fmt lint type test check app cli
 
 setup:      ## install everything + git hooks
 	uv sync
@@ -26,3 +26,6 @@ cli:
 
 eval:  ## score the intent parser on tests/fixtures/intents.jsonl with the real model (not in CI)
 	uv run python scripts/eval_intents.py
+
+backtest:  ## run the detector over the cached price history (offline, not in CI)
+	uv run python scripts/backtest.py $(ARGS)

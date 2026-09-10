@@ -15,6 +15,7 @@ uv run python cli.py investigate 2024-01-05T19:00         # explain one hour (He
 uv run python cli.py investigate 2024-01-05T19:00 --no-llm --charts out/
 make check                      # format, lint, type-check, tests (what CI runs)
 make eval                       # score the chat router on 28 golden prompts (real model)
+make backtest                   # run the detector over the cached price history (offline)
 ```
 
 The LLM is optional. `COPILOT_MODEL` picks any provider Pydantic AI knows
@@ -65,6 +66,11 @@ is bounded by its baseline while a spike is not, so a collapse from 40 to 3 EUR/
 EUR/MWh and an absolute-only gate would miss it, while the 10 EUR/MWh floor keeps the relative gate
 from vanishing along with the baseline. A price at or below zero is always an event, even when there
 is too little history to build a baseline (the report then says so instead of printing a number).
+A third rule looks at speed rather than level: an hour-to-hour move of at least 100 EUR/MWh beyond
+what the baseline itself does between those two hours, and that carries the price away from its
+baseline, is abnormal even when both hours sit inside their own spread. The move back after a peak
+is just as steep but is the return to normal, so it is not flagged. Every report states the steepest
+move in the event's direction, for example +696 EUR/MWh from 15:00 to 16:00 on the cold-snap day.
 Abnormal hours merge into one episode across up to one normal hour in between, and episodes are
 ranked by peak |z| grown by episode length, so a long event outranks a one-hour blip. A user can
 also ask about any hour; if it is not abnormal the report says so and analyses it anyway.
@@ -113,6 +119,23 @@ events; routing accuracy on the golden prompt set (`make eval`: 28 prompts, 96% 
 `claude-sonnet-5`, the one miss is a bare "explain the 5th" that should ask back); the share of
 LLM calls that hit a guard, read straight from `data/logs/llm.jsonl`; p50 latency per call
 (about 2.4 s routing, 6 s narrative); cache hit rate and seconds per investigation.
+
+**Detection checked on history (`make backtest`, reads the parquet cache, 11 s):** the detector ran
+over 25,584 cached hours, October 2023 to August 2026, and printed four things I read before trusting
+the thresholds. (1) Events per month: 601 episodes, median 15 a month, 13.7% of hours abnormal.
+That is a lot, and it is honest: Finland since 2024 runs a low-price regime with near-zero
+baselines and frequent jumps to 150 to 400 EUR/MWh, so the tool leans on ranking rather than on a
+short list. (2) Known events: the 2024-01-05 cold snap ranks 2nd of 601 (the 39-hour September
+2024 episode at 393 EUR/MWh against an 8 EUR/MWh baseline ranks 1st), the 2023-11-24 bid-error day
+27th, and the windy December 2023 night 232nd, since a night at zero in a low-price regime has a
+small z; inside its own scan window it still shows. (3) Threshold sweep: raising z from 3 to 5 cuts
+episodes 663 to 568, raising the absolute gate 30 to 80 EUR/MWh cuts 632 to 539, and the ramp
+gate 80 to 150 barely matters, 620 to 591. A gentle slope, no cliff, so z = 4 / 50 EUR/MWh is
+not a lucky pick. (4) Against the textbook rule, same UTC hour, trailing 30-day mean, flag beyond
+2 std: 980 hours flagged by both, 2,434 only by us, 927 only by the naive rule. The hours only we
+flag include 264 EUR/MWh against an 8 EUR/MWh baseline: an earlier spike had inflated the naive
+std until nothing looked odd. The hours only the naive rule flags are 49 to 69 EUR/MWh on a
+near-zero baseline, real but under the 50 EUR/MWh gate. That is the case for median and MAD.
 
 **Concrete test cases (in `tests/`, run offline on a fixture):**
 1. 2024-01-05 19:00 is the top event of Dec 8 to Jan 8; load, Swedish imports and neighbouring

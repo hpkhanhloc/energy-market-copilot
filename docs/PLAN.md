@@ -34,12 +34,25 @@ Goal: one call gives a clean hourly DataFrame for any date range, cached, works 
 Goal: given a date range, list hours where the price is abnormal, with a score.
 
 - [x] Baseline: same *local* hour-of-day, same day type (weekday/weekend), trailing 28 days (median + MAD)
-- [x] Flags: `z_score`, `jump_vs_prev_hour`, `abs_level` thresholds. `Event` dataclass
-      (frozen): start, end, peak_price, baseline, z, kind ∈ {spike, crash, negative}
+- [x] Flags: robust z >= 4 with a 50 EUR/MWh gate (crash: or half its baseline and 10 EUR/MWh),
+      price <= 0 always, and a hour-to-hour ramp of 100 EUR/MWh beyond the baseline's own shape
+      that carries the price away from normal. `Event` dataclass (frozen): start, end,
+      peak_price, baseline, z, kind ∈ {spike, crash, negative}, max_ramp
 - [x] Merge adjacent abnormal hours into one event window
 - [x] `find_events(frame, top_n)` and `event_at(frame, timestamp)` for the "I know the hour" path
 - [x] Tests: synthetic series with one planted spike; DST day; both demo events found
 - [x] Commit
+
+### Step 2b: verify detection on history (`copilot/backtest.py`, `make backtest`)
+
+Goal: show the thresholds are checked, not guessed. Reads the parquet cache only.
+
+- [x] Events per month over 35 cached months (2023-10 .. 2026-08)
+- [x] Known events in the ranked list: 2024-01-05 spike, 2023-11-24 bid-error day, 2023-12-17 night
+- [x] Threshold sweep (z 3/4/5, abs 30/50/80, ramp 80/100/150) to see how steep the slope is
+- [x] Compare with the textbook same-hour mean +/- 2 std rule; print the hours that disagree
+- [x] Numbers written into README "How I would know it is getting better"
+- [ ] Re-run after any change to `detect.py` or `baseline.py`
 
 ## Step 3: Driver checks (`copilot/drivers/`)
 
