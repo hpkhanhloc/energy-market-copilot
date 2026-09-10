@@ -53,3 +53,38 @@ def test_cached_frame_refetches_after_ttl(tmp_path: Path) -> None:
 def test_ttl_for(end: pd.Timestamp, expected_ttl: timedelta | None) -> None:
     now = ts("2026-09-10")
     assert ttl_for(end, now=now) == expected_ttl
+
+
+def test_month_chunks_cover_range() -> None:
+    from copilot.data.cache import month_chunks
+
+    chunks = list(month_chunks(helsinki("2023-12-08"), helsinki("2024-01-08")))
+    assert chunks == [
+        (ts("2023-12-01"), ts("2024-01-01")),
+        (ts("2024-01-01"), ts("2024-02-01")),
+    ]
+
+
+def test_cached_range_fetches_each_month_once_and_clips(tmp_path: Path) -> None:
+    from copilot.data.cache import cached_range
+
+    calls: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+
+    def fetch(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+        calls.append((start, end))
+        idx = pd.date_range(start, end, freq="1h", inclusive="left", name="time")
+        return pd.DataFrame({"x": range(len(idx))}, index=idx)
+
+    first = cached_range(
+        "t", helsinki("2023-12-30"), helsinki("2024-01-02"), fetch, cache_dir=tmp_path
+    )
+    second = cached_range(
+        "t", helsinki("2023-12-31"), helsinki("2024-01-01"), fetch, cache_dir=tmp_path
+    )
+
+    assert len(calls) == 2  # Dec and Jan, each once
+    assert first.index[0] == ts("2023-12-29 22:00")
+    assert first.index[-1] == ts("2024-01-01 21:00")
+    assert len(second) == 24
+    assert (tmp_path / "t_202312.parquet").exists()
+    assert (tmp_path / "t_202401.parquet").exists()

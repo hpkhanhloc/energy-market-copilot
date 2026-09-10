@@ -11,7 +11,7 @@ from typing import Protocol
 
 import pandas as pd
 
-from copilot.data.cache import cache_key, cached_frame, ttl_for
+from copilot.data.cache import cached_range
 from copilot.timeutil import datetime_index, to_utc
 
 log = logging.getLogger(__name__)
@@ -88,8 +88,8 @@ class EntsoeSource:
             area,
             start,
             end,
-            lambda: _hourly(
-                self._client.query_day_ahead_prices(area, start=start, end=end)
+            lambda s, e: _hourly(
+                self._client.query_day_ahead_prices(area, start=s, end=e)
             ).to_frame(name),
         )
         return frame[name]
@@ -101,10 +101,8 @@ class EntsoeSource:
             FI,
             start,
             end,
-            lambda: (
-                _hourly(self._client.query_load(FI, start=start, end=end))
-                .iloc[:, 0]
-                .to_frame("load")
+            lambda s, e: (
+                _hourly(self._client.query_load(FI, start=s, end=e)).iloc[:, 0].to_frame("load")
             ),
         )
         return frame["load"]
@@ -116,8 +114,8 @@ class EntsoeSource:
             FI,
             start,
             end,
-            lambda: (
-                _hourly(self._client.query_load_forecast(FI, start=start, end=end))
+            lambda s, e: (
+                _hourly(self._client.query_load_forecast(FI, start=s, end=e))
                 .iloc[:, 0]
                 .to_frame("load_fc")
             ),
@@ -131,8 +129,8 @@ class EntsoeSource:
             FI,
             start,
             end,
-            lambda: _group_generation(
-                _hourly(_actual_only(self._client.query_generation(FI, start=start, end=end)))
+            lambda s, e: _group_generation(
+                _hourly(_actual_only(self._client.query_generation(FI, start=s, end=e)))
             ),
         )
 
@@ -140,9 +138,9 @@ class EntsoeSource:
         """Net physical import into Finland from `area` (MW, positive = into FI), hourly mean."""
         name = f"import_{NEIGHBOURS.get(area, area.lower())}"
 
-        def fetch() -> pd.DataFrame:
-            inbound = _hourly(self._client.query_crossborder_flows(area, FI, start=start, end=end))
-            outbound = _hourly(self._client.query_crossborder_flows(FI, area, start=start, end=end))
+        def fetch(s: pd.Timestamp, e: pd.Timestamp) -> pd.DataFrame:
+            inbound = _hourly(self._client.query_crossborder_flows(area, FI, start=s, end=e))
+            outbound = _hourly(self._client.query_crossborder_flows(FI, area, start=s, end=e))
             return inbound.sub(outbound, fill_value=0.0).to_frame(name)
 
         return self._cached("net_import", area, start, end, fetch)[name]
@@ -150,8 +148,8 @@ class EntsoeSource:
     def wind_forecast(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
         """Day-ahead wind onshore forecast for Finland, MW, hourly mean."""
 
-        def fetch() -> pd.DataFrame:
-            raw = _hourly(self._client.query_wind_and_solar_forecast(FI, start=start, end=end))
+        def fetch(s: pd.Timestamp, e: pd.Timestamp) -> pd.DataFrame:
+            raw = _hourly(self._client.query_wind_and_solar_forecast(FI, start=s, end=e))
             wind = [c for c in raw.columns if str(c).startswith("Wind")]
             return (
                 raw[wind].sum(axis=1).to_frame("wind_fc")
@@ -167,17 +165,19 @@ class EntsoeSource:
         area: str,
         start: pd.Timestamp,
         end: pd.Timestamp,
-        fetch: Callable[[], pd.DataFrame],
+        fetch: Callable[[pd.Timestamp, pd.Timestamp], pd.DataFrame],
     ) -> pd.DataFrame:
         start, end = to_utc(start), to_utc(end)
-        key = cache_key("entsoe", series, area, start, end)
 
-        def fetch_and_clip() -> pd.DataFrame:
-            log.info("entsoe fetch %s %s %s..%s", series, area, start, end)
-            frame = fetch()
-            return frame[(datetime_index(frame) >= start) & (datetime_index(frame) < end)]
+        def fetch_month(month_start: pd.Timestamp, month_end: pd.Timestamp) -> pd.DataFrame:
+            log.info("entsoe fetch %s %s %s..%s", series, area, month_start, month_end)
+            frame = fetch(month_start, month_end)
+            index = datetime_index(frame)
+            return frame[(index >= month_start) & (index < month_end)]
 
-        return cached_frame(key, fetch_and_clip, cache_dir=self._cache_dir, ttl=ttl_for(end))
+        return cached_range(
+            f"entsoe_{series}_{area}", start, end, fetch_month, cache_dir=self._cache_dir
+        )
 
 
 def _hourly[T: (pd.Series, pd.DataFrame)](obj: T) -> T:

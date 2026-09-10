@@ -19,8 +19,8 @@ class FakeClient:
         self, dataset: Dataset | int, start: pd.Timestamp, end: pd.Timestamp
     ) -> pd.Series:
         self.calls.append(int(dataset))
-        idx = pd.date_range(start, periods=3, freq="1h", name="time")
-        return pd.Series([1.0, 2.0, 3.0], index=idx, name="raw")
+        idx = pd.date_range(start, end, freq="1h", inclusive="left", name="time")
+        return pd.Series(range(len(idx)), index=idx, name="raw", dtype="float64")
 
 
 def test_series_is_named_cached_and_utc(tmp_path: Path) -> None:
@@ -32,8 +32,8 @@ def test_series_is_named_cached_and_utc(tmp_path: Path) -> None:
 
     assert wind.name == "wind_rt"
     assert wind.index[0] == ts("2024-01-04 22:00")
-    assert wind.tolist() == [1.0, 2.0, 3.0]
-    assert client.calls == [int(Dataset.WIND)]
+    assert len(wind) == 3
+    assert client.calls == [int(Dataset.WIND)]  # one month fetched once, reused
     pd.testing.assert_series_equal(wind, again, check_freq=False)  # parquet drops freq
 
 

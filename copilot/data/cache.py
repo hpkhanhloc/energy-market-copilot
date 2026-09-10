@@ -3,7 +3,7 @@
 import logging
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -59,3 +59,50 @@ def _fresh(path: Path, ttl: timedelta | None) -> bool:
         return True
     age = time.time() - path.stat().st_mtime
     return age < ttl.total_seconds()
+
+
+RangeFetch = Callable[[pd.Timestamp, pd.Timestamp], pd.DataFrame]
+
+
+def month_chunks(
+    start: pd.Timestamp, end: pd.Timestamp
+) -> Iterator[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Whole UTC calendar months covering [start, end)."""
+    start, end = ts(start).tz_convert("UTC"), ts(end).tz_convert("UTC")
+    cursor = ts(start.tz_localize(None).to_period("M").start_time)  # ts() localizes naive to UTC
+    while cursor < end:
+        nxt = ts((cursor + pd.offsets.MonthBegin(1)).normalize())
+        yield cursor, nxt
+        cursor = nxt
+
+
+def cached_range(
+    prefix: str,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    fetch: RangeFetch,
+    *,
+    cache_dir: Path,
+    now: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Fetch and cache one parquet per calendar month, then return the clipped [start, end).
+
+    Month granularity means any later window that overlaps a fetched month is free, and only
+    the month containing "now" ever expires (see `ttl_for`).
+    """
+    start, end = ts(start).tz_convert("UTC"), ts(end).tz_convert("UTC")
+    parts: list[pd.DataFrame] = []
+    for chunk_start, chunk_end in month_chunks(start, end):
+        key = cache_key(prefix, chunk_start.strftime("%Y%m"))
+        part = cached_frame(
+            key,
+            lambda s=chunk_start, e=chunk_end: fetch(s, e),
+            cache_dir=cache_dir,
+            ttl=ttl_for(chunk_end, now),
+        )
+        parts.append(part)
+    if not parts:
+        return pd.DataFrame()
+    frame = pd.concat(parts)
+    frame = frame[~frame.index.duplicated(keep="last")].sort_index()
+    return frame[(frame.index >= start) & (frame.index < end)]

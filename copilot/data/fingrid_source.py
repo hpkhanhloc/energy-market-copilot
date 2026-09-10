@@ -6,7 +6,7 @@ from typing import Protocol
 
 import pandas as pd
 
-from copilot.data.cache import cache_key, cached_frame, ttl_for
+from copilot.data.cache import cached_range
 from copilot.data.fingrid import Dataset
 from copilot.timeutil import to_utc
 
@@ -42,11 +42,12 @@ class FingridSource:
         """One named column from `SERIES`, hourly mean, UTC index, cached."""
         dataset = SERIES[column]
         start, end = to_utc(start), to_utc(end)
-        key = cache_key("fingrid", int(dataset), start, end)
 
-        def fetch() -> pd.DataFrame:
-            log.info("fingrid fetch %s (%d) %s..%s", column, int(dataset), start, end)
-            return self._client.fetch_hourly(dataset, start, end).to_frame(column)
+        def fetch(s: pd.Timestamp, e: pd.Timestamp) -> pd.DataFrame:
+            log.info("fingrid fetch %s (%d) %s..%s", column, int(dataset), s, e)
+            return self._client.fetch_hourly(dataset, s, e).to_frame(column)
 
-        frame = cached_frame(key, fetch, cache_dir=self._cache_dir, ttl=ttl_for(end))
+        frame = cached_range(
+            f"fingrid_{int(dataset)}", start, end, fetch, cache_dir=self._cache_dir
+        )
         return frame[column]
