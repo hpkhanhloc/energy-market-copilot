@@ -211,6 +211,14 @@ def row_picked(turn_index: int) -> None:
     st.session_state["pending"] = (f"Explain {when:%a %d %b %Y %H:%M}", Investigate(when=when))
 
 
+CLEAR_WORDS = {"clear", "clear chat", "new chat", "start over", "reset", "restart"}
+
+
+def is_clear_command(text: str) -> bool:
+    """Typed shortcuts that wipe the chat without an LLM call."""
+    return text.strip().lower().rstrip(".!") in CLEAR_WORDS
+
+
 def clear_chat() -> None:
     st.session_state["turns"] = []
     st.session_state["pending"] = None

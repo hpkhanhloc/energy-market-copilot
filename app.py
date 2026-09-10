@@ -17,6 +17,7 @@ from views import (
     clear_chat,
     handle_intent,
     handle_text,
+    is_clear_command,
     show_turn,
     turns,
     user_text,
@@ -74,6 +75,9 @@ for i, turn in enumerate(history):
     with st.chat_message(turn["role"]):
         show_turn(i, turn, latest_investigation=i == last_inv)
 
+if history:
+    st.button("Start a new chat", on_click=clear_chat, icon=":material/delete_sweep:")
+
 pending = st.session_state.pop("pending", None)
 if pending is not None:
     label, intent = pending
@@ -82,5 +86,8 @@ if pending is not None:
     st.rerun()
 
 if text := st.chat_input("What happened on 5 Jan 2024 at 19:00? Find odd hours in December 2023?"):
-    handle_text(text, settings, ai=ai)
+    if is_clear_command(text):
+        clear_chat()
+    else:
+        handle_text(text, settings, ai=ai)
     st.rerun()
