@@ -5,3 +5,8 @@ __pycache__/
 .DS_Store
 data/cache/
 .ipynb_checkpoints/
+
+.coverage
+htmlcov/
+.ruff_cache/
+.pytest_cache/
