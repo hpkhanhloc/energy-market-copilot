@@ -136,12 +136,16 @@ class EntsoeSource:
             ),
         )
 
-    def net_import(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-        """Net physical import into Finland per border (MW, positive = into FI) plus `import_total`."""
-        frame = self._cached(
-            "net_import", FI, start, end, self._fetch_net_import_factory(start, end)
-        )
-        return frame
+    def net_import(self, area: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
+        """Net physical import into Finland from `area` (MW, positive = into FI), hourly mean."""
+        name = f"import_{NEIGHBOURS.get(area, area.lower())}"
+
+        def fetch() -> pd.DataFrame:
+            inbound = _hourly(self._client.query_crossborder_flows(area, FI, start=start, end=end))
+            outbound = _hourly(self._client.query_crossborder_flows(FI, area, start=start, end=end))
+            return inbound.sub(outbound, fill_value=0.0).to_frame(name)
+
+        return self._cached("net_import", area, start, end, fetch)[name]
 
     def wind_forecast(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
         """Day-ahead wind onshore forecast for Finland, MW, hourly mean."""
@@ -156,25 +160,6 @@ class EntsoeSource:
             )
 
         return self._cached("wind_fc", FI, start, end, fetch)["wind_fc"]
-
-    def _fetch_net_import_factory(
-        self, start: pd.Timestamp, end: pd.Timestamp
-    ) -> Callable[[], pd.DataFrame]:
-        def fetch() -> pd.DataFrame:
-            columns: dict[str, pd.Series] = {}
-            for area, suffix in NEIGHBOURS.items():
-                inbound = _hourly(
-                    self._client.query_crossborder_flows(area, FI, start=start, end=end)
-                )
-                outbound = _hourly(
-                    self._client.query_crossborder_flows(FI, area, start=start, end=end)
-                )
-                columns[f"import_{suffix}"] = inbound.sub(outbound, fill_value=0.0)
-            frame = pd.DataFrame(columns)
-            frame["import_total"] = frame.sum(axis=1, min_count=1)
-            return frame
-
-        return fetch
 
     def _cached(
         self,

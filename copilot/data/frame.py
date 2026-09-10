@@ -24,7 +24,7 @@ class EntsoeLike(Protocol):
     def load(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series: ...
     def load_forecast(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series: ...
     def generation_by_type(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame: ...
-    def net_import(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame: ...
+    def net_import(self, area: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series: ...
     def wind_forecast(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series: ...
 
 
@@ -73,6 +73,9 @@ def build_market_frame(
     data = pd.DataFrame(index=index)
     for part in parts:
         data = data.join(part, how="left")
+    imports = [c for c in data.columns if c.startswith("import_")]
+    if imports:
+        data["import_total"] = data[imports].sum(axis=1, min_count=1)
     return MarketFrame(data=data, missing=tuple(missing))
 
 
@@ -91,7 +94,8 @@ def _jobs(
         jobs["load"] = lambda: entsoe.load(start, end)
         jobs["load_fc"] = lambda: entsoe.load_forecast(start, end)
         jobs["generation"] = lambda: entsoe.generation_by_type(start, end)
-        jobs["net_import"] = lambda: entsoe.net_import(start, end)
+        for area, suffix in NEIGHBOURS.items():
+            jobs[f"import_{suffix}"] = lambda a=area: entsoe.net_import(a, start, end)
         jobs["wind_fc"] = lambda: entsoe.wind_forecast(start, end)
     if fingrid is not None:
         for column in fingrid_source.SERIES:

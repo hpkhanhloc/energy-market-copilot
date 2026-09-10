@@ -2,11 +2,12 @@
 
 import logging
 from pathlib import Path
+from typing import Protocol
 
 import pandas as pd
 
 from copilot.data.cache import cache_key, cached_frame, ttl_for
-from copilot.data.fingrid import Dataset, FingridClient
+from copilot.data.fingrid import Dataset
 from copilot.timeutil import to_utc
 
 log = logging.getLogger(__name__)
@@ -24,8 +25,16 @@ SERIES: dict[str, Dataset] = {
 """Column name -> Fingrid dataset. `_rt` = real-time measurement averaged to the hour."""
 
 
+class HourlyFetcher(Protocol):
+    """What we need from `FingridClient` (structural, so tests can fake it)."""
+
+    def fetch_hourly(
+        self, dataset: Dataset | int, start: pd.Timestamp, end: pd.Timestamp
+    ) -> pd.Series: ...
+
+
 class FingridSource:
-    def __init__(self, client: FingridClient, *, cache_dir: Path) -> None:
+    def __init__(self, client: HourlyFetcher, *, cache_dir: Path) -> None:
         self._client = client
         self._cache_dir = cache_dir
 

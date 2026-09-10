@@ -114,10 +114,11 @@ def test_generation_groups_types_and_drops_consumption(
 
 def test_net_import_per_border(source: tuple[EntsoeSource, FakeClient]) -> None:
     src, client = source
-    imports = src.net_import(START, END)
-    assert imports["import_se1"].iloc[0] == 800.0
-    assert imports["import_se3"].iloc[0] == 1200.0
-    assert imports["import_total"].iloc[0] == 800.0 + 1200.0 + 800.0 + 800.0
+    se1 = src.net_import("SE_1", START, END)
+    se3 = src.net_import("SE_3", START, END)
+    assert se1.name == "import_se1"
+    assert se1.tolist() == [800.0]
+    assert se3.tolist() == [1200.0]
     assert ("flow", "SE_1", "FI") in client.calls
     assert ("flow", "FI", "SE_1") in client.calls
 

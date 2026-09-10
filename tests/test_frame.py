@@ -27,8 +27,10 @@ class FakeEntsoe:
     def generation_by_type(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
         return pd.DataFrame({"nuclear": _hours([4.0, 4.0, 4.0], "nuclear")})
 
-    def net_import(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
-        return pd.DataFrame({"import_total": _hours([5.0, 5.0, 5.0], "x")})
+    def net_import(self, area: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
+        if area == "EE":
+            raise RuntimeError("no data")
+        return _hours([5.0, 5.0, 5.0], f"import_{area.lower()}")
 
     def wind_forecast(self, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
         return _hours([], "wind_fc")
@@ -49,7 +51,9 @@ def test_frame_joins_and_reports_missing(tmp_path: Path) -> None:
     assert frame.data["price_fi"].tolist() == [1.0, 2.0, 3.0]
     assert frame.data["price_se_3"].tolist() == [1.0, 2.0, 3.0]
     assert frame.data["nuclear"].tolist() == [4.0, 4.0, 4.0]
-    assert frame.data["import_total"].tolist() == [5.0, 5.0, 5.0]
+    assert frame.data["import_se_1"].tolist() == [5.0, 5.0, 5.0]
+    assert frame.data["import_total"].tolist() == [15.0, 15.0, 15.0]  # 3 borders, EE missing
+    assert "import_ee" in frame.missing
     assert frame.data["wind_rt"].tolist() == [7.0, 7.0, 7.0]
     assert frame.data["load"].isna().sum() == 1
     assert "load_fc" in frame.missing  # raised
