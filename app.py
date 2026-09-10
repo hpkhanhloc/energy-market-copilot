@@ -66,8 +66,10 @@ with st.sidebar:
     if st.button("Investigate this hour"):
         st.session_state["any_hour"] = f"{day}T{hour:02d}:00"
     st.divider()
-    use_llm = st.toggle(
-        "Write narrative with LLM", value=True, help=f"Model: {settings.copilot_model}"
+    use_llm = st.toggle("Narrative: LLM prose", value=True)
+    st.caption(
+        f"On: {settings.copilot_model} rewrites the code-made facts as a short note. "
+        "Off: a plain template fills the same boxes. Numbers, verdicts and charts are the same either way."
     )
 
 
