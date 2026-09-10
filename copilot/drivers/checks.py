@@ -35,7 +35,8 @@ def wind_forecast(frame: MarketFrame, event: Event) -> DriverResult:
         title="Wind forecast (day-ahead)",
         unit="MW",
         bullish_when="lower",
-        hypothesis="Low forecast wind for these hours (less cheap supply in the day-ahead auction).",
+        hypothesis_up="Low forecast wind for these hours (less cheap supply in the day-ahead auction).",
+        hypothesis_down="High forecast wind for these hours (cheap supply flooding the day-ahead auction).",
     )
 
 
@@ -49,7 +50,8 @@ def wind_actual(frame: MarketFrame, event: Event) -> DriverResult:
         title="Wind generation (actual)",
         unit="MW",
         bullish_when="lower",
-        hypothesis="Actual wind was low (mainly an imbalance-market signal; cross-checks the forecast).",
+        hypothesis_up="Actual wind was low (mainly an imbalance-market signal; cross-checks the forecast).",
+        hypothesis_down="Actual wind was high (mainly an imbalance-market signal; cross-checks the forecast).",
         columns=(column, "wind_fc"),
     )
 
@@ -64,7 +66,8 @@ def nuclear(frame: MarketFrame, event: Event) -> DriverResult:
         title="Nuclear generation",
         unit="MW",
         bullish_when="lower",
-        hypothesis="A nuclear unit out or ramped down (less cheap baseload available).",
+        hypothesis_up="A nuclear unit out or ramped down (less cheap baseload available).",
+        hypothesis_down="More nuclear than usual (extra cheap baseload).",
     )
 
 
@@ -77,7 +80,8 @@ def load(frame: MarketFrame, event: Event) -> DriverResult:
         title="Consumption (actual load)",
         unit="MW",
         bullish_when="higher",
-        hypothesis="Unusually high demand, e.g. a cold snap (more expensive plants needed).",
+        hypothesis_up="Unusually high demand, e.g. a cold snap (more expensive plants needed).",
+        hypothesis_down="Unusually low demand, e.g. a mild weekend or holiday (cheap plants suffice).",
         columns=("load", "load_fc"),
     )
 
@@ -108,7 +112,8 @@ def imports(frame: MarketFrame, event: Event) -> DriverResult:
         title="Imports from Sweden (SE1+SE3)",
         unit="MW",
         bullish_when="lower",
-        hypothesis="Less import from Sweden (capacity limits, or Sweden short too).",
+        hypothesis_up="Less import from Sweden (capacity limits, or Sweden short too).",
+        hypothesis_down="More import from Sweden than usual (cheap Nordic power flowing in).",
         columns=tuple(
             c for c in ("import_se1", "import_se3", "import_ee", "import_no4") if frame.has(c)
         ),
@@ -203,7 +208,8 @@ def residual_load(frame: MarketFrame, event: Event) -> DriverResult:
         title="Residual load (load - wind - nuclear)",
         unit="MW",
         bullish_when="higher",
-        hypothesis="An unusually large gap for flexible plants and imports to fill.",
+        hypothesis_up="An unusually large gap for flexible plants and imports to fill.",
+        hypothesis_down="Very little left for flexible plants to cover (oversupply from wind and baseload).",
         columns=("residual_load",),
     )
 

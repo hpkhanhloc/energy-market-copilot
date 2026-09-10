@@ -56,6 +56,14 @@ def test_fallback_narrative_separates_lists(investigation: Investigation) -> Non
     assert unknown_numbers(narrative, render_facts(investigation)) == []
 
 
+def test_unknown_numbers_accepts_sign_newline_and_year_variants() -> None:
+    facts = "## Spike on Sat 16 Dec 2023\n- Deviation: -84 EUR/MWh, robust z = -9.0\n"
+    text = Narrative(
+        summary="On 16 Dec 2023, about 84 EUR/MWh below (z=-9.0).", facts=[], hypotheses=[]
+    )
+    assert unknown_numbers(text, facts) == []
+
+
 def test_unknown_numbers_flags_invented_values() -> None:
     facts = "Peak: 1,896 EUR/MWh. Load 13,784 MW (21%)."
     good = Narrative(

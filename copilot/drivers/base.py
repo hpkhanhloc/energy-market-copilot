@@ -65,7 +65,8 @@ def compare_to_baseline(
     column: str,
     name: str,
     title: str,
-    hypothesis: str,
+    hypothesis_up: str,
+    hypothesis_down: str,
     unit: str,
     bullish_when: str,
     config: BaselineConfig | None = None,
@@ -75,8 +76,10 @@ def compare_to_baseline(
 
     `bullish_when` is "lower" or "higher": the direction of the driver that pushes price UP.
     For a spike the driver supports if it moved in the bullish direction by |z| >= Z_SUPPORT;
-    for a crash/negative event the opposite direction is required.
+    for a crash/negative event the opposite direction is required. `hypothesis_up` is the story
+    tested for high prices, `hypothesis_down` for crashes and negative prices.
     """
+    hypothesis = hypothesis_up if price_up(event) else hypothesis_down
     if not frame.has(column):
         return DriverResult(
             name=name,

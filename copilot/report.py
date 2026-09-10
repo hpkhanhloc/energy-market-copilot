@@ -162,4 +162,5 @@ def _small_count(value: str) -> bool:
 
 
 def _norm(number: str) -> str:
-    return number.replace(",", "").replace(" ", "").lstrip("+")
+    """Comparable form: no thousands separators, no whitespace, no sign (84 matches -84)."""
+    return "".join(number.split()).replace(",", "").lstrip("+-")
