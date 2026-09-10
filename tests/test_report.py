@@ -7,7 +7,14 @@ from pydantic_ai.models.test import TestModel
 from copilot.data.frame import MarketFrame
 from copilot.investigate import Investigation, investigate_at
 from copilot.llm import build_agent, narrate
-from copilot.report import Narrative, fallback_narrative, render_facts, unknown_numbers
+from copilot.report import (
+    Narrative,
+    banned_phrases,
+    fallback_narrative,
+    render_facts,
+    unknown_numbers,
+    unknown_numbers_in_text,
+)
 from copilot.timeutil import ts
 
 models.ALLOW_MODEL_REQUESTS = False
@@ -164,3 +171,50 @@ def test_narrate_drops_invented_insufficient_items(investigation: Investigation)
     with agent.override(model=TestModel(custom_output_args=output)):
         narrative = narrate(full, model="test", agent=agent)
     assert narrative.insufficient == []
+
+
+@pytest.mark.parametrize(
+    ("text", "hits"),
+    [
+        ("Price rose because wind fell", ["because"]),
+        ("Because of low wind, prices rose", ["because"]),
+        ("High load due to cold weather led to a spike", ["due to", "led to"]),
+        ("This is consistent with low wind", []),
+        ("becauseless word", []),
+    ],
+)
+def test_banned_phrases(text: str, hits: list[str]) -> None:
+    assert banned_phrases(text) == hits
+
+
+def test_unknown_numbers_in_text(investigation: Investigation) -> None:
+    facts = render_facts(investigation)
+    assert unknown_numbers_in_text("Peak 1,896 EUR/MWh over 3 h", facts) == []
+    assert unknown_numbers_in_text("Peak 2,500 EUR/MWh", facts) == ["2,500"]
+
+
+def test_narrate_falls_back_on_causal_wording(investigation: Investigation) -> None:
+    agent = build_agent("test")
+    output = {
+        "summary": "The spike was caused by low wind.",
+        "facts": [],
+        "hypotheses": [],
+        "insufficient": [],
+    }
+    with agent.override(model=TestModel(custom_output_args=output)):
+        narrative = narrate(investigation, model="test", agent=agent)
+    assert "not proof of cause" in narrative.summary
+
+
+def test_narrate_writes_trace(investigation: Investigation, tmp_path) -> None:
+    from copilot.trace import last_call
+
+    agent = build_agent("test")
+    output = {"summary": "x 9999 EUR/MWh", "facts": [], "hypotheses": [], "insufficient": []}
+    with agent.override(model=TestModel(custom_output_args=output)):
+        narrate(investigation, model="test", agent=agent)
+    call = last_call()
+    assert call is not None
+    assert call.kind == "narrative"
+    assert call.guard == "unknown_numbers"
+    assert call.fallback is True

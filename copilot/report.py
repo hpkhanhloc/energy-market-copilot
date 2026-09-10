@@ -120,21 +120,37 @@ SMALL_COUNT_LIMIT = (
 )
 
 
+BANNED = ("caused", "because", "due to", "led to", "resulted in")
+BANNED_RE = re.compile(r"\b(?:" + "|".join(re.escape(b) for b in BANNED) + r")\b", re.IGNORECASE)
+
+
 def unknown_numbers(narrative: Narrative, facts: str) -> list[str]:
     """Numbers in the narrative that do not appear in the facts text (possible hallucinations)."""
-    allowed = {_norm(n) for n in NUMBER.findall(facts)}
-    allowed |= _rounded(allowed)  # "z = 30.3" may be quoted as "30"
     found: list[str] = []
     for text in _texts(narrative):
-        counts = _count_numbers(text)
-        for raw in NUMBER.findall(text):
-            value = _norm(raw)
-            if value in allowed:
-                continue
-            if not value.endswith("%") and _small_count(value) and value in counts:
-                continue
-            found.append(raw.strip())
+        found.extend(unknown_numbers_in_text(text, facts))
     return found
+
+
+def unknown_numbers_in_text(text: str, facts: str) -> list[str]:
+    """Numbers in `text` that do not appear in the facts text (possible hallucinations)."""
+    allowed = {_norm(n) for n in NUMBER.findall(facts)}
+    allowed |= _rounded(allowed)  # "z = 30.3" may be quoted as "30"
+    counts = _count_numbers(text)
+    found: list[str] = []
+    for raw in NUMBER.findall(text):
+        value = _norm(raw)
+        if value in allowed:
+            continue
+        if not value.endswith("%") and _small_count(value) and value in counts:
+            continue
+        found.append(raw.strip())
+    return found
+
+
+def banned_phrases(text: str) -> list[str]:
+    """Causal words the report must not use ("caused", "because", "due to"), lowercased."""
+    return [m.group(0).lower() for m in BANNED_RE.finditer(text)]
 
 
 def _count_numbers(text: str) -> set[str]:

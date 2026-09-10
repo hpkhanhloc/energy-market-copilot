@@ -1,4 +1,4 @@
-"""The one LLM call: facts in, typed Narrative out. Provider chosen by COPILOT_MODEL."""
+"""The narrative LLM call: facts in, typed Narrative out. Provider chosen by COPILOT_MODEL."""
 
 import logging
 
@@ -6,7 +6,14 @@ from pydantic_ai import Agent
 
 from copilot.drivers.base import Verdict
 from copilot.investigate import Investigation
-from copilot.report import Narrative, fallback_narrative, render_facts, unknown_numbers
+from copilot.report import (
+    Narrative,
+    banned_phrases,
+    fallback_narrative,
+    render_facts,
+    unknown_numbers,
+)
+from copilot.trace import Guard, LlmCall, now_iso, record, timed
 
 log = logging.getLogger(__name__)
 
@@ -34,29 +41,70 @@ def narrate(
 ) -> Narrative:
     """Ask the model for a Narrative; fall back to the deterministic one on any failure.
 
-    If the model returns a number that is not in the facts, the deterministic narrative is used
-    instead and the incident is logged: an honest report beats a fluent one.
+    If the model returns a number that is not in the facts, or causal wording, the deterministic
+    narrative is used instead and the incident is logged: an honest report beats a fluent one.
     """
     facts = render_facts(inv)
     agent = agent or build_agent(model)
-    try:
-        result = agent.run_sync(f"FACTS:\n{facts}")
-    except Exception as exc:
+    prompt = f"FACTS:\n{facts}"
+    result, latency = timed(lambda: agent.run_sync(prompt))
+    if isinstance(result, Exception):
         log.warning(
-            "LLM narrative failed (%s: %s); using deterministic narrative", type(exc).__name__, exc
+            "LLM narrative failed (%s: %s); using deterministic narrative",
+            type(result).__name__,
+            result,
         )
+        _trace(model, prompt, repr(result), latency, guard="exception")
         return fallback_narrative(inv)
-    narrative = result.output
+    narrative: Narrative = result.output
+    output = narrative.model_dump_json()
     bad = unknown_numbers(narrative, facts)
     if bad:
         log.warning(
             "LLM narrative used numbers not in the facts %s; using deterministic narrative", bad
         )
+        _trace(model, prompt, output, latency, guard="unknown_numbers")
         return fallback_narrative(inv)
+    causal = [p for text in _narrative_texts(narrative) for p in banned_phrases(text)]
+    if causal:
+        log.warning("LLM narrative used causal wording %s; using deterministic narrative", causal)
+        _trace(model, prompt, output, latency, guard="banned_phrase")
+        return fallback_narrative(inv)
+    guard: Guard | None = None
     if narrative.insufficient and not any(r.verdict is Verdict.INSUFFICIENT for r in inv.results):
         log.info(
             "dropping %d 'insufficient' items the model added on its own",
             len(narrative.insufficient),
         )
         narrative = narrative.model_copy(update={"insufficient": []})
+        guard = "invented_insufficient"
+    _trace(model, prompt, output, latency, guard=guard, fallback=False)
     return narrative
+
+
+def _narrative_texts(n: Narrative) -> list[str]:
+    return [n.summary, *n.facts, *n.hypotheses, *n.insufficient]
+
+
+def _trace(
+    model: str,
+    prompt: str,
+    output: str,
+    latency: int,
+    *,
+    guard: Guard | None,
+    fallback: bool = True,
+) -> None:
+    record(
+        LlmCall(
+            kind="narrative",
+            model=model,
+            input=prompt,
+            output=output,
+            ok=guard is None,
+            guard=guard,
+            fallback=fallback,
+            latency_ms=latency,
+            ts=now_iso(),
+        )
+    )

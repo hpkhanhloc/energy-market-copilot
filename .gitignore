@@ -10,3 +10,4 @@ data/cache/
 htmlcov/
 .ruff_cache/
 .pytest_cache/
+data/logs/
