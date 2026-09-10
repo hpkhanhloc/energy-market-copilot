@@ -1,0 +1,112 @@
+import numpy as np
+import pandas as pd
+import pytest
+from pydantic_ai import models
+from pydantic_ai.models.test import TestModel
+
+from copilot.data.frame import MarketFrame
+from copilot.investigate import Investigation, investigate_at
+from copilot.llm import build_agent, narrate
+from copilot.report import Narrative, fallback_narrative, render_facts, unknown_numbers
+from copilot.timeutil import ts
+
+models.ALLOW_MODEL_REQUESTS = False
+
+
+@pytest.fixture
+def investigation() -> Investigation:
+    idx = pd.date_range(ts("2023-12-01"), periods=40 * 24, freq="1h", name="time")
+    hours = np.arange(len(idx)) % 24
+    rng = np.random.default_rng(3)
+    data = pd.DataFrame(
+        {
+            "price_fi": 60 + 20 * np.sin(hours / 24 * 2 * np.pi) + rng.normal(0, 3, len(idx)),
+            "price_se3": 45 + rng.normal(0, 2, len(idx)),
+            "load": 10_000 + rng.normal(0, 100, len(idx)),
+            "wind_fc": 2_000 + rng.normal(0, 100, len(idx)),
+            "nuclear": 4_300 + rng.normal(0, 5, len(idx)),
+        },
+        index=idx,
+    )
+    t0 = ts("2024-01-05 15:00")
+    data.loc[t0 : t0 + pd.Timedelta(hours=2), "price_fi"] = [900.0, 1896.0, 700.0]
+    data.loc[t0 : t0 + pd.Timedelta(hours=2), "wind_fc"] = 300.0
+    return investigate_at(MarketFrame(data=data, missing=("import_se1",)), ts("2024-01-05 16:00"))
+
+
+def test_render_facts_has_every_section(investigation: Investigation) -> None:
+    text = render_facts(investigation)
+    assert text.startswith("## Price spike on Fri 05 Jan 2024")
+    assert "- Window: 17:00 to 19:00 (3 h, Europe/Helsinki)" in text
+    assert "- Peak: 1,896 EUR/MWh at 18:00" in text
+    assert "### Drivers the evidence supports" in text
+    assert "**Wind forecast (day-ahead)**" in text
+    assert "### Not enough data to judge" in text
+    assert "could not be loaded: import_se1" in text
+
+
+def test_fallback_narrative_separates_lists(investigation: Investigation) -> None:
+    narrative = fallback_narrative(investigation)
+    assert "1,896 EUR/MWh" in narrative.summary
+    assert "not proof of cause" in narrative.summary
+    assert narrative.hypotheses == [
+        "Low forecast wind for these hours pushed the day-ahead price up."
+    ]
+    assert any("no data" in item or "no cross-border" in item for item in narrative.insufficient)
+    assert unknown_numbers(narrative, render_facts(investigation)) == []
+
+
+def test_unknown_numbers_flags_invented_values() -> None:
+    facts = "Peak: 1,896 EUR/MWh. Load 13,784 MW (21%)."
+    good = Narrative(
+        summary="Peak 1896 EUR/MWh, load 13,784 MW, 21% above, 3 hours.", facts=[], hypotheses=[]
+    )
+    bad = Narrative(summary="Peak 1900 EUR/MWh.", facts=["load up 25%"], hypotheses=[])
+    assert unknown_numbers(good, facts) == []
+    assert unknown_numbers(bad, facts) == ["1900", "25%"]
+
+
+def test_narrate_uses_model_output_when_numbers_check_out(investigation: Investigation) -> None:
+    agent = build_agent("test")
+    output = {
+        "summary": "A spike to 1,896 EUR/MWh against a baseline of about 70 EUR/MWh.",
+        "facts": ["Wind forecast 300 MW during the event."],
+        "hypotheses": ["Consistent with low forecast wind."],
+        "insufficient": [],
+    }
+    facts = render_facts(investigation)
+    # keep the test honest: the baseline number must really be in the facts
+    output["summary"] = output["summary"].replace(
+        "about 70", f"{investigation.event.baseline_median:,.0f}"
+    )
+    with agent.override(model=TestModel(custom_output_args=output)):
+        narrative = narrate(investigation, model="test", agent=agent)
+    assert narrative.summary == output["summary"]
+    assert unknown_numbers(narrative, facts) == []
+
+
+def test_narrate_falls_back_when_model_invents_numbers(investigation: Investigation) -> None:
+    agent = build_agent("test")
+    output = {
+        "summary": "Price hit 2,500 EUR/MWh.",
+        "facts": [],
+        "hypotheses": [],
+        "insufficient": [],
+    }
+    with agent.override(model=TestModel(custom_output_args=output)):
+        narrative = narrate(investigation, model="test", agent=agent)
+    assert "2,500" not in narrative.summary
+    assert "not proof of cause" in narrative.summary
+
+
+def test_narrate_falls_back_on_error(
+    investigation: Investigation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    agent = build_agent("test")
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(agent, "run_sync", boom)
+    narrative = narrate(investigation, model="test", agent=agent)
+    assert "not proof of cause" in narrative.summary
