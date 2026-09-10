@@ -4,6 +4,8 @@ MVP for a 72h home assignment (Capalo AI). Assignment PDF: `~/Downloads/AI_Engin
 Goal: user says "something odd happened in the Finnish power market" and the tool answers
 "here is what happened, the evidence, and the most plausible drivers to investigate".
 
+Step-by-step build plan with checkboxes: `docs/PLAN.md`. Tick steps there as they land.
+
 ## Product decisions (do not re-open without asking)
 
 - Market: Finland. Use case: **day-ahead spot price** anomalies. Imbalance price is a stretch goal.
