@@ -35,13 +35,16 @@ Step-by-step build plan with checkboxes: `docs/PLAN.md`. Tick steps there as the
 
 ## Data sources (verified 2026-09-10)
 
-- `https://api.energy-charts.info` — no key. `price?bzn=FI` (spot, 2015+), `public_power?country=fi`
-  (generation by type + load, 15-min), `cbpf?country=fi` (flows by neighbour). Also SE1, SE3, EE, NO4
-  prices. License: private/internal use only, say so in README. **Primary source for MVP.**
-- Fingrid `https://data.fingrid.fi/api/datasets/{id}/data` — needs `FINGRID_API_KEY` header
-  `x-api-key`. 1 req / 2 s, 10k/day. Key IDs: 319 imbalance price, 244/106 mFRR up/down,
-  181 wind, 245 wind forecast, 188 nuclear, 192/193 real-time prod/cons. No spot price here.
-- ENTSO-E via `entsoe-py` — needs `ENTSOE_API_KEY`, may not arrive in time. Optional.
+Only the two sources named in the assignment. Both keys are in `.env` and verified working.
+- ENTSO-E via `entsoe-py` (`ENTSOE_API_KEY`): day-ahead spot price FI + neighbours (SE_1, SE_3,
+  EE, NO_4), load, generation by type, cross-border physical flows, wind/solar forecast, NTC.
+  **Source for the price series and everything cross-border.** 400 req/min. Host is blocked in
+  the Claude sandbox; test calls need the sandbox off.
+- Fingrid `https://data.fingrid.fi/api/datasets/{id}/data` (`FINGRID_API_KEY`, header
+  `x-api-key`, 1 req / 2 s, 10k/day): Finnish real-time detail. IDs: 319 imbalance price,
+  244/106 mFRR up/down, 181 wind, 245 wind forecast, 188 nuclear, 191 hydro, 192/193 real-time
+  prod/cons, 165 consumption forecast, 241 production forecast. No spot price here.
+- Not used: energy-charts, porssisahko etc. Outside the assignment brief.
 - All fetches go through `copilot/data/` and cache to `data/cache/*.parquet` so demos work offline.
 
 ## Stack and layout

@@ -19,8 +19,8 @@ Goal: one call gives a clean hourly DataFrame for any date range, cached, works 
 
 - [ ] `copilot/config.py`: load `.env`, expose keys, cache dir, `Europe/Helsinki` tz constant
 - [ ] `copilot/data/cache.py`: parquet cache keyed by (source, series, start, end); TTL for recent data
-- [ ] `copilot/data/energy_charts.py`: `spot_price(bzn, start, end)`, `generation(start, end)`,
-      `load(start, end)`, `flows(start, end)`. Resample to hourly, UTC index, unit columns
+- [ ] `copilot/data/entsoe.py`: thin wrapper over `entsoe-py`: `day_ahead_price(area)`, `load()`,
+      `generation_by_type()`, `net_import_by_border()`, `wind_solar_forecast()`. Hourly, UTC index
 - [ ] `copilot/data/fingrid.py`: generic `dataset(id, start, end)` with paging + 2 s throttle;
       helpers for wind (181), wind forecast (245), nuclear (188), imbalance price (319)
 - [ ] `copilot/data/frame.py`: `market_frame(start, end)` joins everything into one hourly table:
