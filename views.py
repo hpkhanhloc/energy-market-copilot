@@ -200,10 +200,11 @@ def chip_picked() -> None:
 
 
 def row_picked(turn_index: int) -> None:
-    rows = st.session_state[f"events_{turn_index}"]["selection"]["rows"]
-    if not rows:
+    label = st.session_state.get(f"pick_{turn_index}")
+    if not label:
         return
-    event: Event = turns()[turn_index]["events"][rows[0]]
+    events: list[Event] = turns()[turn_index]["events"]
+    event = events[[episode_label(e) for e in events].index(label)]
     when = event.peak_time.tz_convert(TZ)
     st.session_state["pending"] = (f"Explain {when:%a %d %b %Y %H:%M}", Investigate(when=when))
 
@@ -211,7 +212,7 @@ def row_picked(turn_index: int) -> None:
 def clear_chat() -> None:
     st.session_state["turns"] = []
     st.session_state["pending"] = None
-    for key in [k for k in st.session_state if str(k).startswith("events_")]:
+    for key in [k for k in st.session_state if str(k).startswith("pick_")]:
         del st.session_state[key]
 
 
@@ -245,29 +246,46 @@ def show_scan(i: int, turn: dict[str, Any]) -> None:
         )
         return
     st.write(
-        f"{len(events)} abnormal episodes between {turn['start']} and {turn['end']}, strongest first. Click one to investigate."
+        f"{len(events)} abnormal episodes between {turn['start']:%d %b %Y} and "
+        f"{turn['end']:%d %b %Y}, most unusual first."
     )
-    st.dataframe(
-        events_table(events),
-        hide_index=True,
-        use_container_width=True,
-        key=f"events_{i}",
-        on_select=partial(row_picked, i),
-        selection_mode="single-row",
+    st.dataframe(events_table(events), hide_index=True, use_container_width=True)
+    st.caption(
+        "Usual = median price for the same hour over the previous 28 days. "
+        "Rarity (z) = how many robust standard deviations the peak is from usual; "
+        "above 4 counts as abnormal."
+    )
+    st.selectbox(
+        "Pick an episode to investigate",
+        [episode_label(e) for e in events],
+        index=None,
+        placeholder="Pick an episode to investigate",
+        key=f"pick_{i}",
+        on_change=partial(row_picked, i),
+        label_visibility="collapsed",
+    )
+
+
+def episode_label(e: Event) -> str:
+    start = e.start.tz_convert(TZ)
+    return (
+        f"{start:%a %d %b %Y %H:%M}, {KIND_WORD[e.kind].lower()}, "
+        f"peak {e.peak_price:,.0f} vs usual {e.baseline_median:,.0f} EUR/MWh, {e.hours} h"
     )
 
 
 def events_table(events: list[Event]) -> pd.DataFrame:
     return pd.DataFrame(
         {
-            "What": [KIND_WORD[e.kind] for e in events],
-            "Starts (Helsinki)": [
-                e.start.tz_convert(TZ).strftime("%a %d %b %H:%M") for e in events
+            "When (Helsinki)": [
+                e.start.tz_convert(TZ).strftime("%a %d %b %Y %H:%M") for e in events
             ],
-            "Hours": [e.hours for e in events],
+            "Lasted": [f"{e.hours} h" for e in events],
+            "What": [KIND_WORD[e.kind] for e in events],
             "Peak EUR/MWh": [round(e.peak_price) for e in events],
-            "Normal EUR/MWh": [round(e.baseline_median) for e in events],
-            "How unusual (z)": [round(float(e.z), 1) for e in events],
+            "Usual EUR/MWh": [round(e.baseline_median) for e in events],
+            "Difference EUR/MWh": [f"{e.deviation:+,.0f}" for e in events],
+            "Rarity (z)": [round(float(e.z), 1) for e in events],
         }
     )
 

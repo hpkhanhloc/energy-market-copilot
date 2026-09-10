@@ -23,20 +23,25 @@ from views import (
 )
 
 logging.basicConfig(level=logging.WARNING)
-st.set_page_config(page_title="Energy Market Copilot", page_icon="⚡", layout="wide")
+st.set_page_config(
+    page_title="Energy Market Copilot",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 settings = load_settings()
 st.session_state["settings"] = settings
 
 with st.sidebar:
+    st.header("Settings")
     ai = st.toggle(
-        "AI summary",
+        "AI-written summary",
         value=True,
         help=f"On: {settings.copilot_model} writes the summary from the facts. "
-        "Off: a fixed template. Numbers and charts do not change.",
+        "Off: a fixed template. Numbers, verdicts and charts do not change either way.",
     )
-    st.caption(f"Model: `{settings.copilot_model}` (COPILOT_MODEL)")
-    st.button("Clear chat", on_click=clear_chat, use_container_width=True)
-    with st.expander("Debug: last LLM call"):
+    st.caption(f"Model: `{settings.copilot_model}` (COPILOT_MODEL in .env)")
+    with st.expander("Developer: last LLM call"):
         call = last_call()
         if call is None:
             st.caption("No calls yet.")
@@ -53,13 +58,18 @@ with st.sidebar:
                 expanded=False,
             )
             st.text_area("Prompt", call.input, height=200, disabled=True)
+        st.caption("Every call is appended to data/logs/llm.jsonl.")
 
 st.title("Energy Market Copilot")
 st.caption(
     "Finnish day-ahead price. Ask what happened, get the numbers, the charts, and which drivers "
     "the evidence supports. December 2023 and January 2024 are ready offline."
 )
-st.pills("Try one", list(STARTERS), key="chip", on_change=chip_picked, label_visibility="collapsed")
+chips, clear = st.columns([5, 1], vertical_alignment="center")
+chips.pills(
+    "Try one", list(STARTERS), key="chip", on_change=chip_picked, label_visibility="collapsed"
+)
+clear.button("Clear chat", on_click=clear_chat, use_container_width=True)
 
 history = turns()
 last_inv = max((i for i, t in enumerate(history) if t["kind"] == "investigation"), default=-1)
