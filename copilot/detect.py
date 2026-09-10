@@ -40,6 +40,16 @@ class DetectConfig:
     """
     negative_price: float = 0.0
     """Price at or below this is always an event of kind NEGATIVE."""
+    min_ramp: float = 100.0
+    """EUR/MWh one-hour change, beyond the baseline's own hour-to-hour shape, that is abnormal
+    on its own whatever the level.
+
+    A jump from 10 to 150 EUR/MWh can leave both hours inside their own baseline spread, so
+    the z gate never sees it, yet the speed of the move is what an analyst wants explained.
+    Needs a baseline on both hours (the move must lead away from it), so hours without
+    history rely on the z and negative rules alone. Provisional until `scripts/backtest.py`
+    confirms an ordinary evening ramp stays under it.
+    """
     max_gap_hours: int = 1
     """Up to this many normal hours between two abnormal hours are bridged into one episode."""
 
@@ -58,6 +68,11 @@ class Event:
     hours: int
     flagged: bool = True
     """False when the user asked about an hour that our rules do not consider abnormal."""
+    max_ramp: float = math.nan
+    """Steepest one-hour price change in the event's direction (up for a spike, down for a
+    crash or negative episode), signed, EUR/MWh. NaN when the series starts here."""
+    max_ramp_time: pd.Timestamp | None = None
+    """Hour at the end of that move: the change is from the hour before it."""
 
     @property
     def deviation(self) -> float:
@@ -86,6 +101,7 @@ def score_prices(price: pd.Series, config: DetectConfig | None = None) -> pd.Dat
     """Baseline frame plus `kind` per hour (None where normal)."""
     config = config or DetectConfig()
     frame = baseline_frame(price, config.baseline)
+    frame["ramp"] = frame["value"].diff()
     deviation = frame["value"] - frame["median"]
     drop = -deviation
     big_drop = (drop >= config.min_abs_deviation) | (
@@ -96,7 +112,15 @@ def score_prices(price: pd.Series, config: DetectConfig | None = None) -> pd.Dat
     crash = (frame["z"] <= -config.z_threshold) & big_drop
     negative = frame["value"] <= config.negative_price
     kind = pd.Series([None] * len(frame), index=frame.index, dtype="object")
-    kind[crash] = EventKind.CRASH
+    # Ramp rule. `excess` is the move beyond what the baseline itself does between these two
+    # hours, so the ordinary morning ramp scores ~0. `away` keeps only moves that carry the
+    # price away from its baseline: the hour after a spike drops just as steeply, but that is
+    # the return to normal, not a second event.
+    excess = deviation.diff()
+    away = deviation.abs() > deviation.abs().shift(1)
+    kind[(excess <= -config.min_ramp) & away] = EventKind.CRASH
+    kind[(excess >= config.min_ramp) & away] = EventKind.SPIKE
+    kind[crash] = EventKind.CRASH  # z verdicts override a ramp-only flag on the same hour
     kind[spike] = EventKind.SPIKE
     kind[negative] = EventKind.NEGATIVE  # negative wins: it is always worth explaining
     frame["kind"] = kind
@@ -178,6 +202,14 @@ def _make_event(rows: pd.DataFrame, *, flagged: bool) -> Event:
     candidates = rows if abnormal.empty else abnormal  # empty only for an unflagged hour
     peak = candidates["value"].idxmax() if kind is EventKind.SPIKE else candidates["value"].idxmin()
     index = datetime_index(rows)
+    # Steepest move *in the event's direction*: the run-up for a spike, the drop for a crash
+    # or negative episode. The move back to normal after a peak is just as steep, but it is
+    # not what the reader wants explained.
+    ramp = rows["ramp"]
+    if ramp.isna().all():
+        steepest = None
+    else:
+        steepest = ramp.idxmax() if kind is EventKind.SPIKE else ramp.idxmin()
     return Event(
         start=index[0],
         end=index[-1],
@@ -188,4 +220,6 @@ def _make_event(rows: pd.DataFrame, *, flagged: bool) -> Event:
         kind=kind,
         hours=len(rows),
         flagged=flagged,
+        max_ramp=math.nan if steepest is None else float(ramp.loc[steepest]),
+        max_ramp_time=None if steepest is None else ts(steepest),
     )

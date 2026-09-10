@@ -283,3 +283,28 @@ def test_number_guard_lets_prose_sign_a_magnitude_the_facts_left_bare() -> None:
     facts = "Consumption: 13,710 MW vs a baseline of 11,327 MW (above normal by 2,383 MW, 21%)."
     assert unknown_numbers_in_text("consumption ran +2,383 MW over normal", facts) == []
     assert unknown_numbers_in_text("residual demand was -2,383 MW off normal", facts) == []
+
+
+def test_render_facts_reports_the_steepest_move(investigation: Investigation) -> None:
+    text = render_facts(investigation)
+    assert "- Steepest hour-to-hour move: +996 EUR/MWh (17:00 to 18:00)" in text
+
+
+def test_render_facts_skips_the_move_when_there_is_none() -> None:
+    from copilot.detect import Event, EventKind
+
+    event = Event(
+        start=ts("2023-12-16 17:00"),
+        end=ts("2023-12-16 17:00"),
+        peak_time=ts("2023-12-16 17:00"),
+        peak_price=-1.0,
+        baseline_median=float("nan"),
+        z=float("nan"),
+        kind=EventKind.NEGATIVE,
+        hours=1,
+    )
+    frame = MarketFrame(data=pd.DataFrame(index=pd.date_range(event.start, event.end, freq="1h")))
+    inv = Investigation(
+        event=event, frame=frame, results=[], window_start=event.start, window_end=event.end
+    )
+    assert "Steepest" not in render_facts(inv)

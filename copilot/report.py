@@ -9,6 +9,7 @@ import math
 import re
 from collections.abc import Iterable
 
+import pandas as pd
 from pydantic import BaseModel, Field
 
 from copilot.detect import EventKind
@@ -71,6 +72,13 @@ def render_facts(inv: Investigation) -> str:
             f"{e.baseline_median:,.0f} EUR/MWh",
             f"- Deviation: {e.deviation:+,.0f} EUR/MWh, robust z = {e.z:+.1f}",
         ]
+    if e.flagged and e.max_ramp_time is not None and not math.isnan(e.max_ramp):
+        top = e.max_ramp_time.tz_convert(TZ)
+        before = top - pd.Timedelta(hours=1)
+        lines.append(
+            f"- Steepest hour-to-hour move: {e.max_ramp:+,.0f} EUR/MWh "
+            f"({before:%H:%M} to {top:%H:%M})"
+        )
     if not e.flagged:
         lines.append(
             "- Note: this hour is NOT abnormal by the copilot's rules; analysed on request."

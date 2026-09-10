@@ -194,3 +194,69 @@ def test_a_tiny_drop_off_a_tiny_baseline_is_not_a_crash() -> None:
     price = pd.Series(2.0 + rng.normal(0, 0.05, len(idx)), index=idx, name="price_fi")
     price.loc[ts("2024-01-04 12:00")] = 0.5  # -75%, extreme z, but only -1.5 EUR/MWh
     assert find_events(price) == []
+
+
+def test_ramp_inside_baseline_spread_is_flagged_with_its_size() -> None:
+    """Both hours sit within their own spread, so z never fires; the move itself does."""
+    price = _series()
+    t0 = ts("2024-01-05 15:00")
+    price.loc[t0] = price.loc[t0 - pd.Timedelta(hours=1)] + 120.0
+    config = DetectConfig(z_threshold=1e9, min_abs_deviation=1e9)  # z gate off
+
+    events = find_events(price, config)
+
+    assert len(events) == 1
+    assert events[0].kind is EventKind.SPIKE
+    assert events[0].start == events[0].end == t0
+    assert events[0].max_ramp == pytest.approx(120.0, abs=5)  # baseline shape moves a little
+    assert events[0].max_ramp_time == t0
+
+
+def test_ramp_below_min_ramp_is_not_an_event() -> None:
+    price = _series()
+    t0 = ts("2024-01-05 15:00")
+    price.loc[t0] = price.loc[t0 - pd.Timedelta(hours=1)] + 60.0
+    config = DetectConfig(z_threshold=1e9, min_abs_deviation=1e9, min_ramp=100.0)
+    assert find_events(price, config) == []
+
+
+def test_ordinary_daily_step_is_not_a_ramp() -> None:
+    """A 180 EUR/MWh step that happens every day at the same hour is the baseline, not news."""
+    idx = pd.date_range(ts("2023-12-01"), periods=40 * 24, freq="1h", name="time")
+    hours = idx.to_series().dt.hour.to_numpy()
+    level = np.where(hours == 13, 20.0, 200.0)
+    price = pd.Series(level, index=idx, name="price_fi")
+    assert find_events(price) == []
+
+
+def test_return_to_normal_after_a_spike_is_not_a_second_event() -> None:
+    price = _series()
+    t0 = ts("2024-01-05 15:00")
+    price.loc[t0 : t0 + pd.Timedelta(hours=2)] = [900.0, 1896.0, 700.0]
+
+    events = find_events(price)
+
+    assert len(events) == 1
+    assert events[0].end == t0 + pd.Timedelta(hours=2)  # the 700 -> 60 drop is not flagged
+    assert events[0].max_ramp == pytest.approx(996.0)  # the 900 -> 1896 run-up
+    assert events[0].max_ramp_time == t0 + pd.Timedelta(hours=1)
+
+
+def test_crash_reports_the_drop_not_the_recovery() -> None:
+    price = _series()
+    t0 = ts("2024-01-05 15:00")
+    price.loc[t0 : t0 + pd.Timedelta(hours=1)] = [-40.0, -80.0]
+
+    events = find_events(price)
+
+    assert events[0].kind is EventKind.NEGATIVE
+    assert events[0].max_ramp == pytest.approx(-89, abs=5)  # ~49 -> -40
+    assert events[0].max_ramp_time == t0
+
+
+def test_first_hour_of_series_has_no_ramp() -> None:
+    price = _series()
+    event = event_at(price, ts(price.index[0]))
+    assert not event.flagged
+    assert np.isnan(event.max_ramp)
+    assert event.max_ramp_time is None

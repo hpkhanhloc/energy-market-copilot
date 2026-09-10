@@ -64,7 +64,9 @@ def test_quiet_hour_is_unflagged_and_says_so(frame: MarketFrame) -> None:
     inv = investigate_at(frame, helsinki("2023-12-29 03:00"))
     assert not inv.event.flagged
     assert abs(inv.event.z) < 4
-    assert "NOT abnormal" in render_facts(inv)
+    text = render_facts(inv)
+    assert "NOT abnormal" in text
+    assert "Steepest" not in text  # an ordinary hour's diff is not evidence of anything
     assert inv.event.kind is EventKind.CRASH  # below its own baseline, but not by much
     assert inv.supporting == []  # this particular hour: nothing moved either
 
