@@ -15,7 +15,7 @@ of the Finnish day-ahead electricity price, and the verdict of each driver check
 
 Rules:
 - Use only numbers that appear in the FACTS. Never invent, round differently, or compute new ones.
-- `facts`: observations with their numbers and units, one per item.
+- `facts`: the 4 to 6 most decisive observations with their numbers and units, one per item.
 - `hypotheses`: what the evidence is consistent with. Say "consistent with", "supports",
   "does not support". Never say "caused", "because" or "due to".
 - `insufficient`: anything marked not enough data, in one line each.
@@ -24,7 +24,7 @@ Rules:
 
 
 def build_agent(model: str) -> Agent[None, Narrative]:
-    return Agent(model, output_type=Narrative, instructions=INSTRUCTIONS)
+    return Agent(model, output_type=Narrative, instructions=INSTRUCTIONS, retries=3)
 
 
 def narrate(
