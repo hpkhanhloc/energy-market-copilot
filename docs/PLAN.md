@@ -4,13 +4,14 @@ Checklist for the 72h MVP. Tick boxes as steps land. Each step ends with `make c
 and a commit. Keep scope: Finnish day-ahead spot price, two demo investigations.
 
 Demo events to keep working at every step:
+
 - 2024-01-05 17:00 Helsinki: spot ~2180 EUR/MWh (cold snap, tight imports)
 - 2023-11-24: spot -500 EUR/MWh (bid error; "evidence not sufficient" case)
 
 ## Step 0: Setup (done)
 
 - [x] Python 3.14, uv, ruff, ty, pytest, hooks, CI, CLAUDE.md
-- [ ] `.env` with `FINGRID_API_KEY`, ENTSO-E token requested
+- [x] `.env` with `FINGRID_API_KEY`, ENTSO-E token requested
 
 ## Step 1: Data layer (`copilot/data/`)
 
@@ -70,10 +71,11 @@ Goal: each check = one function, one number, one verdict. No LLM.
 
 - [ ] `Investigation` dataclass: event + driver results + figures
 - [ ] `render_facts(inv) -> str`: deterministic text, all numbers, no LLM
-- [ ] `narrate(inv) -> str`: Claude `claude-sonnet-5` turns facts into short prose.
-      Prompt forces `FACT:` / `HYPOTHESIS:` / `NOT ENOUGH DATA:` labels. Model never sees raw
-      series. Fallback to `render_facts` if no API key
-- [ ] Test: stub client; assert every number in narration exists in facts (no invented numbers)
+- [ ] `copilot/llm.py`: Pydantic AI `Agent(COPILOT_MODEL, output_type=Narrative)` where
+      `Narrative` has `summary`, `facts: list[str]`, `hypotheses: list[str]`, `insufficient: list[str]`.
+      Model never sees raw series. Fallback to `render_facts` if no provider key
+- [ ] Test: `TestModel` + `ALLOW_MODEL_REQUESTS = False`; assert every number in narrative exists
+      in facts (no invented numbers)
 - [ ] Commit
 
 ## Step 6: Interfaces

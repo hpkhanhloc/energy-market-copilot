@@ -25,9 +25,13 @@ Step-by-step build plan with checkboxes: `docs/PLAN.md`. Tick steps there as the
 
 - **Plain code, deterministic, tested:** data fetch + cache, anomaly detection, every driver check,
   charts. These must give the same answer every run.
-- **LLM (Claude via `anthropic`):** only turns the structured check results into a short readable
-  report. It never sees raw time series, never picks the event, never invents numbers.
-  Model: `claude-sonnet-5`. Prompt must force `FACT:` / `HYPOTHESIS:` labels.
+- **LLM (via Pydantic AI, provider-agnostic):** only turns the structured check results into a short
+  readable report. It never sees raw time series, never picks the event, never invents numbers.
+  Model comes from `COPILOT_MODEL` env (default `anthropic:claude-sonnet-5`); swapping provider is
+  an env change, not a code change. Output is a typed pydantic model with separate `facts`,
+  `hypotheses`, `insufficient` lists, not free text. Tests use `TestModel` and set
+  `models.ALLOW_MODEL_REQUESTS = False`. No agents / tool calling in the MVP: evidence must be
+  reproducible run to run.
 
 ## Data sources (verified 2026-09-10)
 
@@ -43,7 +47,7 @@ Step-by-step build plan with checkboxes: `docs/PLAN.md`. Tick steps there as the
 ## Stack and layout
 
 - Python 3.14.7 (`.python-version`), `uv` for env, `ruff` format+lint, `ty` type check,
-  `pytest` + coverage (floor 80%), `pandas`, `plotly`, `streamlit`.
+  `pytest` + coverage (floor 80%), `pandas`, `plotly`, `streamlit`, `pydantic-ai-slim`.
 - Load skill `modern-python` before writing Python here (3.14 idioms, no `__future__` annotations).
 - Run: `make setup` once, then `make check` (fmt, lint, type, test). `make app`, `make cli ARGS=2024-01-05`.
 - Pre-commit runs the same checks; CI (`.github/workflows/ci.yml`) too. If CI would fail, do not commit.

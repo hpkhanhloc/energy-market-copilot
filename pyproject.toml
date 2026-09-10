@@ -9,8 +9,8 @@ dependencies = [
     "requests>=2.32",
     "plotly>=5.24",
     "streamlit>=1.40",
-    "anthropic>=0.40",
     "python-dotenv>=1.0",
+    "pydantic-ai-slim[anthropic,openai]>=2.42.0",
 ]
 
 [dependency-groups]
