@@ -33,7 +33,7 @@ Goal: one call gives a clean hourly DataFrame for any date range, cached, works 
 
 Goal: given a date range, list hours where the price is abnormal, with a score.
 
-- [x] Baseline: same hour-of-day, same weekday type, trailing 28 days (median + MAD)
+- [x] Baseline: same *local* hour-of-day, same day type (weekday/weekend), trailing 28 days (median + MAD)
 - [x] Flags: `z_score`, `jump_vs_prev_hour`, `abs_level` thresholds. `Event` dataclass
       (frozen): start, end, peak_price, baseline, z, kind ∈ {spike, crash, negative}
 - [x] Merge adjacent abnormal hours into one event window

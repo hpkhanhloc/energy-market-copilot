@@ -4,6 +4,7 @@ A turn is a dict: {"role": "user"|"assistant", "kind": "text"|"scan"|"investigat
 Every rerun re-renders the stored turns; nothing is recomputed.
 """
 
+import math
 from datetime import date, datetime, timedelta
 from functools import partial
 from typing import Any
@@ -35,7 +36,7 @@ from copilot.report import Narrative, fallback_narrative, render_facts
 from copilot.timeutil import helsinki
 
 TZ = "Europe/Helsinki"
-HISTORY_DAYS = 30  # fetched before a scan range so the 28-day baseline exists on day one
+HISTORY_DAYS = 30  # fetched before a scan range so the baseline exists on day one
 MAX_TURNS = 30
 KIND_WORD = {
     EventKind.SPIKE: "Price spike",
@@ -43,6 +44,7 @@ KIND_WORD = {
     EventKind.NEGATIVE: "Negative price",
 }
 VERDICT_ICON = {Verdict.SUPPORTS: "🟠", Verdict.DOES_NOT_SUPPORT: "⚪", Verdict.INSUFFICIENT: "❔"}
+NO_BASELINE = "—"  # shown instead of a number when an hour has too little history
 VERDICT_GROUPS = (
     (
         Verdict.SUPPORTS,
@@ -261,7 +263,8 @@ def show_scan(i: int, turn: dict[str, Any]) -> None:
     )
     st.dataframe(events_table(events), hide_index=True, use_container_width=True)
     st.caption(
-        "Usual = median price for the same hour over the previous 28 days. "
+        "Usual = median price for the same local hour on recent days of the same type "
+        "(weekday or weekend). "
         "Rarity (z) = how many robust standard deviations the peak is from usual; "
         "above 4 counts as abnormal."
     )
@@ -276,11 +279,17 @@ def show_scan(i: int, turn: dict[str, Any]) -> None:
     )
 
 
+def number(value: float, spec: str) -> str:
+    """Format a number that is NaN when the hour has too little history for a baseline."""
+    return NO_BASELINE if math.isnan(value) else spec.format(value)
+
+
 def episode_label(e: Event) -> str:
     start = e.start.tz_convert(TZ)
+    usual = f"usual {e.baseline_median:,.0f} EUR/MWh" if e.has_baseline else "no baseline yet"
     return (
         f"{start:%a %d %b %Y %H:%M}, {KIND_WORD[e.kind].lower()}, "
-        f"peak {e.peak_price:,.0f} vs usual {e.baseline_median:,.0f} EUR/MWh, {e.hours} h"
+        f"peak {e.peak_price:,.0f} vs {usual}, {e.hours} h"
     )
 
 
@@ -293,9 +302,9 @@ def events_table(events: list[Event]) -> pd.DataFrame:
             "Lasted": [f"{e.hours} h" for e in events],
             "What": [KIND_WORD[e.kind] for e in events],
             "Peak EUR/MWh": [round(e.peak_price) for e in events],
-            "Usual EUR/MWh": [round(e.baseline_median) for e in events],
-            "Difference EUR/MWh": [f"{e.deviation:+,.0f}" for e in events],
-            "Rarity (z)": [round(float(e.z), 1) for e in events],
+            "Usual EUR/MWh": [number(e.baseline_median, "{:,.0f}") for e in events],
+            "Difference EUR/MWh": [number(e.deviation, "{:+,.0f}") for e in events],
+            "Rarity (z)": [number(e.z, "{:+.1f}") for e in events],
         }
     )
 
@@ -312,10 +321,16 @@ def show_investigation(inv: Investigation, narrative: Narrative, figures: dict) 
     st.subheader(investigation_title(inv))
     if not e.flagged:
         st.caption("This hour is within its normal range. Analysed anyway.")
+    if not e.has_baseline:
+        st.caption("Too little history for this hour and day type, so there is no baseline.")
     m = st.columns(4)
     m[0].metric("Peak", f"{e.peak_price:,.0f} EUR/MWh")
-    m[1].metric("Normal for this hour", f"{e.baseline_median:,.0f} EUR/MWh", f"{e.deviation:+,.0f}")
-    m[2].metric("How unusual (z)", f"{e.z:+.1f}")
+    m[1].metric(
+        "Normal for this hour",
+        number(e.baseline_median, "{:,.0f} EUR/MWh"),
+        number(e.deviation, "{:+,.0f}") if e.has_baseline else None,
+    )
+    m[2].metric("How unusual (z)", number(e.z, "{:+.1f}"))
     m[3].metric("Lasted", f"{e.hours} h")
 
     st.write(narrative.summary)

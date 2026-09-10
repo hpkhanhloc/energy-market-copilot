@@ -49,7 +49,7 @@ def test_scan_lists_events(investigation: Investigation) -> None:
 def test_price_figure_has_baseline_price_and_annotation(investigation: Investigation) -> None:
     fig = price_figure(investigation)
     assert [t.name for t in fig.data] == [
-        "Same-hour baseline (28-day median)",
+        "Same-hour baseline (median)",
         "Day-ahead price, Finland",
     ]
     assert "1,896 EUR/MWh" in fig.layout.annotations[0].text

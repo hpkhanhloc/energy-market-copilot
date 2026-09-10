@@ -1,7 +1,17 @@
 """Robust 'what is normal for this hour' baseline shared by detection and every driver check.
 
-For each hour we compare against the same hour-of-day on the previous `days` days
-(median + MAD). Median/MAD instead of mean/std so one earlier spike does not hide the next one.
+For each hour we compare against the same *local* hour-of-day on previous days of the same
+type (weekday vs weekend), using median + MAD. Median/MAD instead of mean/std so one earlier
+spike does not hide the next one.
+
+Two things matter for correctness:
+
+* **Local hour, not UTC hour.** The daily price shape follows Europe/Helsinki wall-clock time
+  (morning ramp, evening peak). Bucketing on UTC hours makes the whole shape jump by one hour
+  at each DST switch, which would show up as a month of fake spikes and fake crashes twice a
+  year.
+* **Weekday and weekend kept apart.** Sunday midday demand is nothing like Tuesday midday
+  demand, so pooling them pushes every weekend hour toward "crash".
 """
 
 from dataclasses import dataclass
@@ -9,23 +19,43 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from copilot.config import HELSINKI
 from copilot.timeutil import datetime_index
 
 MAD_TO_SIGMA = 1.4826  # scales MAD to a std-dev equivalent for normal data
 MIN_SAMPLES = 7
+MIN_WEEKEND_SAMPLES = 3
+WEEKDAY_SHARE = 5 / 7  # Mon-Fri
+WEEKEND_SHARE = 2 / 7  # Sat-Sun
+SIGMA_FLOOR_SHARE = 0.25  # a bucket may not be more than 4x as sensitive as a typical one
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BaselineConfig:
     days: int = 28
+    """Calendar days of history to look back over."""
     min_samples: int = MIN_SAMPLES
+    """Same-hour, same-day-type values needed before the baseline is trusted."""
+
+    def window(self, *, weekend: bool) -> int:
+        """How many same-day-type days fit inside a `days`-long calendar lookback."""
+        share = WEEKEND_SHARE if weekend else WEEKDAY_SHARE
+        return max(1, round(self.days * share))
+
+    def samples(self, *, weekend: bool) -> int:
+        """Weekends only supply 2 days in 7, so they need a lower bar than weekdays."""
+        if not weekend:
+            return self.min_samples
+        scaled = round(self.min_samples * WEEKEND_SHARE / WEEKDAY_SHARE)
+        return max(MIN_WEEKEND_SAMPLES, scaled)
 
 
 def baseline_frame(series: pd.Series, config: BaselineConfig | None = None) -> pd.DataFrame:
     """Return columns value, median, mad, sigma, z, n for every hour of `series`.
 
-    `z` is NaN where fewer than `min_samples` prior same-hour values exist.
-    Works on any hourly UTC series (price, wind, load...).
+    Buckets are (local hour-of-day, weekday or weekend). `z` is NaN where fewer than
+    `config.samples(...)` prior values share the bucket.
+    Works on any hourly series with a tz-aware index (price, wind, load...).
     """
     config = config or BaselineConfig()
     index = datetime_index(series)
@@ -34,26 +64,39 @@ def baseline_frame(series: pd.Series, config: BaselineConfig | None = None) -> p
     hourly = series.astype("float64")
     hourly.index = index
     table = hourly.to_frame("value")
-    utc = index.tz_convert("UTC").to_series(index=table.index)
-    table["date"] = utc.dt.normalize()
-    table["hour"] = utc.dt.hour
-    wide = table.pivot_table(index="date", columns="hour", values="value", aggfunc="mean")
-
-    # shift(1): today's value is never part of its own baseline
-    window = wide.shift(1).rolling(config.days, min_periods=config.min_samples)
-    median = window.median()
-    mad = window.apply(_mad, raw=True)
-    count = window.count()
+    local = index.tz_convert(HELSINKI).to_series(index=table.index)
+    table["date"] = local.dt.normalize()
+    table["hour"] = local.dt.hour
+    table["weekend"] = local.dt.dayofweek >= 5
 
     out = table[["value"]].copy()
-    out["median"] = _lookup(median, table)
-    out["mad"] = _lookup(mad, table)
-    out["n"] = _lookup(count, table).fillna(0).astype(int)
+    for column, fill in (("median", np.nan), ("mad", np.nan), ("n", 0.0)):
+        out[column] = fill
+    for weekend, part in table.groupby("weekend", sort=False):
+        stats = _bucket_stats(part, config, weekend=bool(weekend))
+        out.loc[part.index, ["median", "mad", "n"]] = stats
+
     out["sigma"] = out["mad"] * MAD_TO_SIGMA
-    floor = _sigma_floor(hourly)
-    out["z"] = (out["value"] - out["median"]) / out["sigma"].clip(lower=floor)
-    out.loc[out["n"] < config.min_samples, ["median", "mad", "sigma", "z"]] = np.nan
+    out["z"] = (out["value"] - out["median"]) / out["sigma"].clip(lower=_sigma_floor(out["sigma"]))
+    out["n"] = out["n"].fillna(0).astype(int)
     return out
+
+
+def _bucket_stats(part: pd.DataFrame, config: BaselineConfig, *, weekend: bool) -> pd.DataFrame:
+    """median/mad/n for one day type, from prior days of that same type only."""
+    wide = part.pivot_table(index="date", columns="hour", values="value", aggfunc="mean")
+    # shift(1): today's value is never part of its own baseline
+    window = wide.shift(1).rolling(config.window(weekend=weekend), min_periods=1)
+    count = _lookup(window.count(), part)
+    stats = pd.DataFrame(
+        {
+            "median": _lookup(window.median(), part),
+            "mad": _lookup(window.apply(_mad, raw=True), part),
+            "n": count.fillna(0),
+        }
+    )
+    stats.loc[count < config.samples(weekend=weekend), ["median", "mad"]] = np.nan
+    return stats
 
 
 def _mad(values: np.ndarray) -> float:
@@ -69,7 +112,13 @@ def _lookup(wide: pd.DataFrame, table: pd.DataFrame) -> pd.Series:
     return pd.Series(stacked.reindex(keys).to_numpy(), index=table.index)
 
 
-def _sigma_floor(series: pd.Series) -> float:
-    """Avoid infinite z when a flat baseline has MAD 0: use 1% of the typical level, min 1."""
-    typical = float(np.nanmedian(np.abs(series.to_numpy()))) if series.notna().any() else 0.0
-    return max(1.0, 0.01 * typical)
+def _sigma_floor(sigma: pd.Series) -> float:
+    """Avoid a huge z when one bucket happens to have a near-zero MAD.
+
+    Floored against the series' *own* typical sigma, not against the price level. A fixed
+    small floor makes the flattest bucket wildly more sensitive than a normal one: on the
+    demo month typical sigma is ~43 EUR/MWh, so a 1 EUR/MWh floor turned an ordinary
+    60 EUR/MWh drop into z = -61.
+    """
+    typical = float(np.nanmedian(sigma.to_numpy())) if sigma.notna().any() else 0.0
+    return max(1.0, SIGMA_FLOOR_SHARE * typical)

@@ -46,9 +46,7 @@ def price_figure(inv: Investigation) -> go.Figure:
     stats = baseline_frame(inv.frame.data["price_fi"]).loc[data.index]
     fig = go.Figure()
     fig.add_trace(
-        _line(
-            stats.index, stats["median"], "Same-hour baseline (28-day median)", BASELINE, width=1.5
-        )
+        _line(stats.index, stats["median"], "Same-hour baseline (median)", BASELINE, width=1.5)
     )
     fig.add_trace(_line(data.index, data["price_fi"], "Day-ahead price, Finland", SERIES[0]))
     _shade_event(fig, inv.event)

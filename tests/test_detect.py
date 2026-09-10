@@ -99,3 +99,49 @@ def test_event_at_nan_hour_raises_clear_error() -> None:
     price.loc[ts("2024-01-05 12:00")] = float("nan")
     with pytest.raises(ValueError, match="no price data"):
         event_at(price, ts("2024-01-05 12:00"))
+
+
+def test_one_normal_hour_between_abnormal_hours_is_bridged() -> None:
+    """max_gap_hours=1 means one normal hour in the middle does not split the episode."""
+    price = _series()
+    t0 = ts("2024-01-05 15:00")
+    price.loc[t0 : t0 + pd.Timedelta(hours=2)] = [900.0, 60.0, 700.0]  # normal hour in between
+    events = find_events(price)
+    assert len(events) == 1
+    assert events[0].hours == 3
+    assert events[0].start == t0
+    assert events[0].end == t0 + pd.Timedelta(hours=2)
+
+
+def test_a_wider_gap_still_splits_the_episode() -> None:
+    price = _series()
+    t0 = ts("2024-01-05 15:00")
+    price.loc[t0] = 900.0
+    price.loc[t0 + pd.Timedelta(hours=3)] = 700.0  # two normal hours in between
+    events = find_events(price)
+    assert len(events) == 2
+    assert all(e.hours == 1 for e in events)
+
+
+def test_a_long_episode_outranks_a_sharper_one_hour_blip() -> None:
+    price = _series()
+    blip = ts("2024-01-02 10:00")
+    price.loc[blip] = 5.0  # one very deep hour
+    long_start = ts("2024-01-06 00:00")
+    price.loc[long_start : long_start + pd.Timedelta(hours=11)] = 8.0  # 12 milder hours
+    events = find_events(price)
+    assert events[0].hours == 12
+    assert abs(events[0].z) < abs(events[1].z)  # shallower per hour, but a far bigger episode
+    assert events[0].severity > events[1].severity
+
+
+def test_event_without_a_baseline_reports_it_and_ranks_last() -> None:
+    """A negative price is an event even with no history behind it, but it must say so."""
+    price = _series(days=3)  # too short for any baseline
+    price.loc[ts("2023-12-02 02:00")] = -20.0
+    price.loc[ts("2023-12-03 02:00")] = -5.0
+    events = find_events(price)
+    assert [e.kind for e in events] == [EventKind.NEGATIVE, EventKind.NEGATIVE]
+    assert not any(e.has_baseline for e in events)
+    assert all(e.severity == 0.0 for e in events)
+    assert [e.peak_price for e in events] == [-20.0, -5.0]  # deepest first

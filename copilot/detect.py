@@ -1,5 +1,6 @@
 """Find hours where the Finnish day-ahead price is abnormal. Plain statistics, no LLM."""
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -25,7 +26,7 @@ class DetectConfig:
     negative_price: float = 0.0
     """Price at or below this is always an event of kind NEGATIVE."""
     max_gap_hours: int = 1
-    """Abnormal hours this close together are merged into one event."""
+    """Up to this many normal hours between two abnormal hours are bridged into one episode."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -47,6 +48,24 @@ class Event:
     def deviation(self) -> float:
         return self.peak_price - self.baseline_median
 
+    @property
+    def has_baseline(self) -> bool:
+        """False when too little history backs this hour, so `baseline_median` and `z` are NaN.
+
+        A negative-price hour is always an event, even with no history behind it, so callers
+        that print numbers must check this first.
+        """
+        return not (math.isnan(self.baseline_median) or math.isnan(self.z))
+
+    @property
+    def severity(self) -> float:
+        """Rank key: peak |z| grown by episode length, so 13 abnormal hours outrank a blip.
+
+        sqrt so length helps without letting a long, mild episode bury a violent short one.
+        0.0 when there is no baseline; `_rank` sorts those separately.
+        """
+        return abs(self.z) * math.sqrt(self.hours) if self.has_baseline else 0.0
+
 
 def score_prices(price: pd.Series, config: DetectConfig | None = None) -> pd.DataFrame:
     """Baseline frame plus `kind` per hour (None where normal)."""
@@ -67,13 +86,18 @@ def score_prices(price: pd.Series, config: DetectConfig | None = None) -> pd.Dat
 def find_events(
     price: pd.Series, config: DetectConfig | None = None, *, top_n: int | None = 5
 ) -> list[Event]:
-    """Abnormal episodes in `price`, strongest first (by |z|, negative prices by depth)."""
+    """Abnormal episodes in `price`, strongest first (see `_rank`)."""
     config = config or DetectConfig()
     scored = score_prices(price, config)
-    flagged = scored[scored["kind"].notna()]
-    events = [_make_event(scored.loc[group], flagged=True) for group in _groups(flagged, config)]
-    events.sort(key=lambda e: (abs(e.z) if pd.notna(e.z) else 0.0, -e.peak_price), reverse=True)
+    events = [_make_event(scored.loc[group], flagged=True) for group in _groups(scored, config)]
+    events.sort(key=_rank, reverse=True)
     return events if top_n is None else events[:top_n]
+
+
+def _rank(event: Event) -> tuple[bool, float, float]:
+    """Strongest first: hours with a real baseline beat hours without one, then severity,
+    then depth below zero so the deepest negative episode wins a tie."""
+    return (event.has_baseline, event.severity, -event.peak_price)
 
 
 def event_at(price: pd.Series, when: pd.Timestamp, config: DetectConfig | None = None) -> Event:
@@ -83,21 +107,32 @@ def event_at(price: pd.Series, when: pd.Timestamp, config: DetectConfig | None =
     scored = score_prices(price, config)
     if when not in scored.index:
         raise KeyError(f"{when} not in price series")
-    flagged = scored[scored["kind"].notna()]
-    for group in _groups(flagged, config):
+    for group in _groups(scored, config):
         if when in group:
             return _make_event(scored.loc[group], flagged=True)
     return _make_event(scored.loc[[when]], flagged=False)
 
 
-def _groups(flagged: pd.DataFrame, config: DetectConfig) -> list[pd.DatetimeIndex]:
+def _groups(scored: pd.DataFrame, config: DetectConfig) -> list[pd.DatetimeIndex]:
+    """Episodes of abnormal hours, bridging up to `max_gap_hours` normal hours in between.
+
+    Each span runs from its first to its last abnormal hour and *includes* the bridged
+    normal hours, so `Event.hours` is the length a reader would count off a clock.
+    """
+    flagged = scored[scored["kind"].notna()]
     if flagged.empty:
         return []
     index = datetime_index(flagged)
-    gap = pd.Timedelta(hours=config.max_gap_hours)
-    breaks = index.to_series().diff() > gap
-    group_id = breaks.cumsum()
-    return [pd.DatetimeIndex(index[group_id.to_numpy() == g]) for g in group_id.unique()]
+    # +1: `max_gap_hours` normal hours between two abnormal hours means their stamps are
+    # max_gap_hours + 1 apart, and that still counts as one episode.
+    gap = pd.Timedelta(hours=config.max_gap_hours + 1)
+    group_id = (index.to_series().diff() > gap).cumsum().to_numpy()
+    hours = datetime_index(scored)
+    spans = []
+    for group in pd.unique(group_id):
+        abnormal = index[group_id == group]
+        spans.append(hours[(hours >= abnormal[0]) & (hours <= abnormal[-1])])
+    return spans
 
 
 def _kind_of(rows: pd.DataFrame) -> EventKind:

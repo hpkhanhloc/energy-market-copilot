@@ -5,7 +5,6 @@ a typed `Narrative` whose numbers all exist in those facts (checked by `unknown_
 """
 
 import logging
-import math
 import re
 from collections.abc import Iterable
 
@@ -60,13 +59,15 @@ def render_facts(inv: Investigation) -> str:
         f"- Window: {start:%H:%M}" + (f" to {end}" if end else "") + f" ({e.hours} h, {TZ})",
         f"- Peak: {e.peak_price:,.0f} EUR/MWh at {peak:%H:%M}",
     ]
-    if math.isnan(e.baseline_median) or math.isnan(e.z):
+    if not e.has_baseline:
         lines.append(
-            "- Same-hour baseline: not enough history (fewer than 7 prior days for this hour)"
+            "- Same-hour baseline: not enough history "
+            "(too few prior days of the same hour and day type)"
         )
     else:
         lines += [
-            f"- Same-hour baseline (28-day median): {e.baseline_median:,.0f} EUR/MWh",
+            f"- Same-hour baseline (median of recent same-day-type days): "
+            f"{e.baseline_median:,.0f} EUR/MWh",
             f"- Deviation: {e.deviation:+,.0f} EUR/MWh, robust z = {e.z:+.1f}",
         ]
     if not e.flagged:
@@ -94,9 +95,7 @@ def fallback_narrative(inv: Investigation) -> Narrative:
     supporting = [r for r in inv.results if r.verdict is Verdict.SUPPORTS]
     lead = ", ".join(r.title.lower() for r in supporting[:3]) or "none of the checked drivers"
     baseline = (
-        ""
-        if math.isnan(e.baseline_median)
-        else f" against a baseline of {e.baseline_median:,.0f} EUR/MWh"
+        "" if not e.has_baseline else f" against a baseline of {e.baseline_median:,.0f} EUR/MWh"
     )
     summary = (
         f"A {KIND_TEXT[e.kind]} of {e.peak_price:,.0f} EUR/MWh{baseline}. "
