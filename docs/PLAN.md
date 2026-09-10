@@ -62,11 +62,11 @@ Goal: each check = one function, one number, one verdict. No LLM.
 
 ## Step 4: Charts (`copilot/plots.py`)
 
-- [ ] Price chart: event window ±48 h, baseline band, event shaded
-- [ ] Driver chart: one small multiple per driver, same x-axis
-- [ ] Neighbour price chart
-- [ ] Plotly figures returned, not shown (UI decides)
-- [ ] Commit
+- [x] Price chart: event window ±48 h, baseline band, event shaded
+- [x] Driver chart: one small multiple per driver, same x-axis
+- [x] Neighbour price chart
+- [x] Plotly figures returned, not shown (UI decides)
+- [x] Commit
 
 ## Step 5: Report (`copilot/report.py`)
 
