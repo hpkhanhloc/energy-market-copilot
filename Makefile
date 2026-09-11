@@ -1,4 +1,4 @@
-.PHONY: eval backtest setup fmt lint type test check app cli
+.PHONY: eval backtest setup warm fmt lint type test check app cli
 
 setup:      ## install everything + git hooks
 	uv sync
@@ -17,6 +17,9 @@ test:       ## run tests with coverage
 	uv run pytest --cov
 
 check: fmt lint type test  ## everything CI runs
+
+warm:  ## download the two demo months into data/cache (needs API keys, ~2 min)
+	uv run python scripts/warm_cache.py 2023-12-01 2024-02-01
 
 app:
 	uv run streamlit run app.py

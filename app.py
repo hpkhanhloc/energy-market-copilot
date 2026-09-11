@@ -85,7 +85,7 @@ if pending is not None:
     handle_intent(intent, settings, ai=ai)
     st.rerun()
 
-if text := st.chat_input("What happened on 5 Jan 2024 at 19:00? Find odd hours in December 2023?"):
+if text := st.chat_input("Ask me, e.g. what happened on 5 Jan 2024 at 19:00?"):
     if is_clear_command(text):
         clear_chat()
     else:

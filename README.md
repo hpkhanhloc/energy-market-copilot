@@ -1,160 +1,168 @@
 # Energy Market Copilot
 
-A small local tool that takes an energy analyst from *"something odd happened in the Finnish
-day-ahead market"* to *"here is what happened, the numbers behind it, and the drivers worth
-checking"*. Facts come from code. Hypotheses are labelled as hypotheses. Nothing is called a cause.
+A small local tool for one question: *"something odd happened in the Finnish day-ahead price,
+what was it and what may have driven it?"* It answers with the numbers, the drivers the evidence
+supports, and the ones it does not. Facts come from code. Hypotheses are labelled as hypotheses.
+Nothing is called a cause.
 
-## Setup and run
+## What it is for
+
+**First user:** a market analyst who today opens Fingrid, ENTSO-E and a spreadsheet by hand every
+time the desk asks "why was Friday evening so expensive?".
+
+**Use case:** the Finnish **day-ahead (spot) price**. It is the number everyone looks at, the data
+is public and complete, and its drivers are well understood (demand, wind, nuclear, imports,
+neighbours), so a first version can be judged right or wrong.
+
+**Two investigations work end to end:** **5 Jan 2024 19:00** (1,896 EUR/MWh, a cold snap) and
+the night of **16 to 17 Dec 2023** (13 hours at or below 0 EUR/MWh, a windy weekend).
+
+**Left out on purpose:** imbalance and balancing prices (fetched and cached, no drivers yet),
+outages, weather as a direct input, intraday, anything beyond Finland's four borders. No cloud,
+no auth, no styling.
+
+## Try it
 
 ```bash
 make setup                      # uv sync + git hooks (needs uv, installs Python 3.14.7)
-cp .env.example .env            # add FINGRID_API_KEY, ENTSOE_API_KEY, and an LLM key
+cp .env.example .env            # add ENTSOE_API_KEY, FINGRID_API_KEY, and an LLM key
+make warm                       # download the two demo months into data/cache (~2 min)
 make app                        # chat UI at http://localhost:8501
-uv run python cli.py scan 2023-12-08 2024-01-08          # list abnormal episodes
-uv run python cli.py investigate 2024-01-05T19:00         # explain one hour (Helsinki time)
-uv run python cli.py investigate 2024-01-05T19:00 --no-llm --charts out/
+uv run python cli.py investigate 2024-01-05T19:00           # same thing without the UI
 make check                      # format, lint, type-check, tests (what CI runs)
-make eval                       # score the chat router on 28 golden prompts (real model)
-make backtest                   # run the detector over the cached price history (offline)
 ```
 
-The LLM is optional. `COPILOT_MODEL` picks any provider Pydantic AI knows
+**Why `make warm`.** The tool does not ship with any data. It downloads market data from two
+public APIs (next section) and keeps a copy under `data/cache/`, one file per series per month.
+That folder is not in git, so a fresh clone starts empty. Without `make warm`, the first
+question you ask about a month fetches it on the spot, and that takes a minute or two (about 20
+API calls, the ENTSO-E ones 20 to 40 seconds each). `make warm` does that fetch once, up front,
+for December 2023 and January 2024, the months the demo cases live in. After that every demo
+question answers in under a second and needs no network. For other months, run
+`uv run python scripts/warm_cache.py <start> <end>` or ask about them and wait.
+
+**The LLM is optional.** `COPILOT_MODEL` picks any provider Pydantic AI knows
 (`anthropic:claude-sonnet-5`, `openai:gpt-5`, `ollama:...`). Without a key you get the same
-report written by code. The ENTSO-E API answers in 20 to 40 seconds per call; the first look at
-a new month takes a minute or two, then everything is cached per calendar month under
-`data/cache/`. Two demo months (Dec 2023, Jan 2024) are worth warming before a demo:
-`uv run python scripts/warm_cache.py 2023-12-01 2024-02-01`.
+report, written by code.
 
-**Using the chat.** Three starter chips cover the demo (the 1,896 EUR/MWh spike on 5 Jan 2024
-19:00, the negative night of 16 Dec 2023, a scan of 8 Dec to 8 Jan); they run plain code, no
-LLM. Or type: *"what happened on 5 Jan 2024 at 19:00"*, *"anything odd in December 2023?"*,
-then follow up with *"the hour before that"*, *"what is residual load?"*, *"why does the report
-say imports do not support?"*. A scan answers with a table; clicking a row opens the
-investigation. Off-topic questions get a one-line "I only do the Finnish day-ahead price".
+**In the chat.** Three starter chips run the demo without the LLM: the 5 Jan 2024 spike, the
+16 Dec 2023 negative night, and a scan of 8 Dec to 8 Jan. Or type *"what happened on 5 Jan 2024
+at 19:00"*, *"anything odd in December 2023?"*, then *"the hour before that"* or *"what is
+residual load?"*. A scan gives a table; clicking a row opens the investigation.
 
-## Who it is for, what it does, what it leaves out
+## How it works
 
-**First user:** a market analyst on the Energy Market Team who today opens Fingrid, ENTSO-E and a
-spreadsheet by hand every time the desk asks "why was Friday evening so expensive?".
+In the chat, one LLM call first reads your words and turns them into a typed request (which
+hour, which range, or a question). Then plain code runs the pipeline: fetch data, find the
+abnormal hours, check each driver, write the facts. The LLM comes back only at the end, to phrase
+those facts and answer follow-ups. Starter chips, table-row clicks and the CLI skip the first
+call entirely.
 
-**Use case:** the Finnish **day-ahead (spot) price**. Picked because it is the number everyone
-looks at, the data is public and complete, and its drivers are well understood (demand, wind,
-nuclear, imports, neighbours), so a first version can be judged right or wrong. Two investigations
-the tool handles end to end: **5 Jan 2024 19:00** (1,896 EUR/MWh, a cold snap) and the night of
-**16 to 17 Dec 2023** (13 hours at or below 0 EUR/MWh, a windy weekend).
+### Two data sources, and what each one is for
 
-**Deliberately left out:** imbalance and balancing prices (the data is fetched and cached from
-Fingrid, but no drivers yet), outages (ENTSO-E outage feed not wired), weather as a direct input,
-intraday, and anything beyond Finland's four borders. No cloud, no auth, no styling.
+Both are named in the brief, and they answer different questions.
 
-## Data, signals, and how the system reasons
+**ENTSO-E is the main source.** It is the only one of the two with the day-ahead price, and the
+only one with anything across a border. From it: the day-ahead price for Finland and its four
+neighbours (SE1, SE3, EE, NO4), load and load forecast, generation by type, the day-ahead wind
+forecast, and physical flows on each border. Every driver check reads ENTSO-E first.
 
-**Sources:** only the two named in the brief. ENTSO-E gives the day-ahead price for Finland and
-SE1, SE3, EE, NO4, actual load and its forecast, generation by type, day-ahead wind forecast, and
-physical flows per border. Fingrid gives real-time wind, nuclear, hydro, production, consumption,
-consumption forecast and the imbalance price. Everything is resampled to hourly means on a UTC
-index and shown in Helsinki time.
+**Fingrid is the Finnish grid operator's own real-time measurements.** From it: wind, nuclear,
+hydro, total production and consumption, the consumption forecast, and the imbalance price. It
+serves three purposes today:
 
-**Spotting an event (plain code):** every hour is compared with the same *Helsinki local* hour on
-recent days of the same type, weekday or weekend, using a median and MAD (a robust standard
-deviation). Local hours, because the daily price shape follows the clock on the wall and a UTC
-bucket would shift by an hour at every DST switch; day types kept apart, because Sunday midday is
-nothing like Tuesday midday. The lookback is 28 calendar days, which holds about 20 weekdays and 8
-weekend days. An hour is abnormal when its robust z is at least 4 *and* it moved at least 50
-EUR/MWh, or, for a crash only, gave up at least half its baseline and at least 10 EUR/MWh: a crash
-is bounded by its baseline while a spike is not, so a collapse from 40 to 3 EUR/MWh moves under 50
-EUR/MWh and an absolute-only gate would miss it, while the 10 EUR/MWh floor keeps the relative gate
-from vanishing along with the baseline. A price at or below zero is always an event, even when there
-is too little history to build a baseline (the report then says so instead of printing a number).
-A third rule looks at speed rather than level: an hour-to-hour move of at least 100 EUR/MWh beyond
-what the baseline itself does between those two hours, and that carries the price away from its
-baseline, is abnormal even when both hours sit inside their own spread. The move back after a peak
-is just as steep but is the return to normal, so it is not flagged. Every report states the steepest
-move in the event's direction, for example +696 EUR/MWh from 15:00 to 16:00 on the cold-snap day.
-Abnormal hours merge into one episode across up to one normal hour in between, and episodes are
-ranked by peak |z| grown by episode length, so a long event outranks a one-hour blip. A user can
-also ask about any hour; if it is not abnormal the report says so and analyses it anyway.
+- *Fallback.* When ENTSO-E's generation-by-type feed has no wind or nuclear for the window (a
+  failed call, or a gap in the feed), the wind, nuclear and residual-load checks use the Fingrid
+  series instead. The chart legend says which one was used.
+- *Charts.* The Fingrid series are plotted next to the ENTSO-E ones so the analyst can see
+  whether the two agree.
+- *Next use case.* The imbalance price is already cached for the imbalance investigation listed
+  under "what I would build next".
 
-**Checking drivers (plain code):** each driver is one function that returns a number, its baseline,
-and one of three verdicts: *supports*, *does not support*, *not enough data*. Support means the
-series moved in the direction that would push the price the way it went, by robust z >= 2, or by 20%
-of baseline while still being at least 1 z from normal: a big-looking share of a wide baseline can
-be an entirely ordinary hour, and calling that "supports" would state a hypothesis the data does not
-back. Drivers: day-ahead wind forecast (what the auction actually saw), actual wind, nuclear, load,
-imports from Sweden (judged on SE1+SE3 because Estonia often flips direction and hides a Nordic
-shortfall in the total), neighbouring prices (a regional move versus Finland alone, which needs a
-strict majority of the neighbours that have data, and says how many of how many moved), and residual
-load (load minus wind minus nuclear). Missing data becomes "not enough data", never a guess.
+Everything is hourly, stored in UTC, shown in Helsinki time. A source that is missing (no key,
+API down) leaves its columns out and the drivers that need them say "not enough data".
 
-**Where the LLM is used, and where it is not:** the LLM never sees raw data, never picks the
-event, never runs a check, and has no tools. It is called three times at most, each with a typed
-output and a code guard behind it:
+### Spotting an event (plain code)
 
-1. *Routing.* Your words plus a small context block (today, the cached date range, the last hour
-   and range on screen) become one of `Scan`, `Investigate`, `Ask`, `Reply`. Code re-checks every
-   date (60-day cap, data reach, no future). Any model failure becomes a `Reply`.
-2. *Narrative.* The deterministic facts text becomes a typed object with separate `facts`,
-   `hypotheses` and `insufficient` lists. Every number is checked against the facts; causal words
-   ("caused", "because", "due to") are rejected; if either trips, the code-written narrative is
-   shown instead.
-3. *Follow-up answers.* A question about the report on screen is answered from the facts text
-   with the same two guards. Term definitions are labelled "general knowledge, not from your
-   data". Hours the report does not cover get "not in the current report, ask me to investigate
-   it", never a guess.
+- **Baseline:** each hour is compared with the same Helsinki hour on recent days of the same
+  type (weekday or weekend) over the last four weeks, using a median and a robust spread.
+- **An hour is abnormal when any one of these holds:**
+  - it sits at least 4 robust standard deviations from that baseline *and* moved at least
+    50 EUR/MWh;
+  - it is at or below 0 EUR/MWh;
+  - it jumped at least 100 EUR/MWh from the hour before, beyond the usual daily shape.
+- **Episodes:** neighbouring abnormal hours merge into one episode, ranked by size and length.
+- **Any hour:** ask about one and the report says whether it is abnormal before analysing it.
+- Full rules, the reason behind each threshold, and the backtest:
+  [docs/DETECTION.md](docs/DETECTION.md).
 
-Every call writes one line to `data/logs/llm.jsonl` (kind, guard hit, fallback used, latency),
-and the sidebar shows the last call. No agents: the evidence has to be identical run to run, or
-you cannot measure whether it improves.
+### Checking drivers (plain code)
+
+- **One function per driver.** Each returns the value during the event, its baseline, and one
+  of three verdicts: *supports*, *does not support*, *not enough data*.
+- **"Supports" means:** the series moved in the direction that would push the price the way it
+  went, by a clear margin over its own normal spread.
+- **Drivers checked:** day-ahead wind forecast, actual wind, nuclear, load, imports from Sweden,
+  neighbouring prices, and residual load (load minus wind minus nuclear).
+- **Missing data** becomes "not enough data", never a guess.
+
+### Where the LLM comes in (three calls, all guarded)
+
+The LLM never sees raw data and has no tools. Code writes a short text, the LLM reads it and
+returns a typed object, code checks the object. Three calls:
+
+1. **Routing** (chat only). Reads your message plus a little context: today's date, which dates
+   have data, the last hour or range you looked at, the last few chat lines. Returns `Scan`,
+   `Investigate`, `Ask` or `Reply` with the dates filled in. Code then checks the dates: inside
+   the data, not in the future, at most a year per scan (60 days if it needs a download). Bad
+   output becomes a plain `Reply`.
+2. **Narrative.** Reads the facts text that code wrote: price, baseline, each driver's value and
+   verdict. Returns `facts`, `hypotheses`, `insufficient` and a short summary. Code checks that
+   every number exists in the facts text and that no causal word ("caused", "because", "due to")
+   is used. If a check fails, or there is no LLM key, the code-written narrative is shown.
+3. **Follow-up.** Reads the same facts text, the last few chat lines, and your question. Returns
+   an answer. Same number and causal-word checks; a failed check gives a fixed safe reply.
+   Answers from the model's own knowledge are labelled "general knowledge, not from your data".
+
+Every call logs one line to `data/logs/llm.jsonl`: which call, which guard fired, latency.
+No agents, no tool use, so the evidence is the same on every run.
 
 ## How I would know it is getting better
 
-**Product side:** does the analyst accept the top hypothesis without opening another tool
-(thumbs up/down per investigation, and how often they add a driver we missed); time from
-question to written note; share of investigations that end in "not enough data" and which
-series was missing.
+**Measured today** (manual runs, not in CI):
 
-**System side:** a regression set of labelled events with expected verdicts (below); detection
-precision on a month of history (flagged hours an analyst agrees with) and recall on known
-events; routing accuracy on the golden prompt set (`make eval`: 28 prompts, 96% with
-`claude-sonnet-5`, the one miss is a bare "explain the 5th" that should ask back); the share of
-LLM calls that hit a guard, read straight from `data/logs/llm.jsonl`; p50 latency per call
-(about 2.4 s routing, 6 s narrative); cache hit rate and seconds per investigation.
+- Detector: `make backtest` runs it over all 35 cached months, offline. The two press-verified
+  events (5 Jan 2024 spike, 24 Nov 2023 bid error) rank 2nd and 27th of 601 episodes. Changing
+  the z threshold from 3 to 5 moves the episode count by 14%, so it is not on a cliff. Against
+  the textbook mean-plus-two-std rule, ours catches a 264 EUR/MWh hour the naive rule misses,
+  because an earlier spike had inflated the naive std. Details in
+  [docs/DETECTION.md](docs/DETECTION.md).
+- Routing: `make eval` scores the intent call on a fixed prompt set. 28 prompts, 96%.
+- Tests in `tests/` pin both demo investigations, a quiet hour, a synthetic spike with normal
+  drivers, and every guard.
 
-**Detection checked on history (`make backtest`, reads the parquet cache, 11 s):** the detector ran
-over 25,584 cached hours, October 2023 to August 2026, and printed four things I read before trusting
-the thresholds. (1) Events per month: 601 episodes, median 15 a month, 13.7% of hours abnormal.
-That is a lot, and it is honest: Finland since 2024 runs a low-price regime with near-zero
-baselines and frequent jumps to 150 to 400 EUR/MWh, so the tool leans on ranking rather than on a
-short list. (2) Known events: the 2024-01-05 cold snap ranks 2nd of 601 (the 39-hour September
-2024 episode at 393 EUR/MWh against an 8 EUR/MWh baseline ranks 1st), the 2023-11-24 bid-error day
-27th, and the windy December 2023 night 232nd, since a night at zero in a low-price regime has a
-small z; inside its own scan window it still shows. (3) Threshold sweep: raising z from 3 to 5 cuts
-episodes 663 to 568, raising the absolute gate 30 to 80 EUR/MWh cuts 632 to 539, and the ramp
-gate 80 to 150 barely matters, 620 to 591. A gentle slope, no cliff, so z = 4 / 50 EUR/MWh is
-not a lucky pick. (4) Against the textbook rule, same UTC hour, trailing 30-day mean, flag beyond
-2 std: 980 hours flagged by both, 2,434 only by us, 927 only by the naive rule. The hours only we
-flag include 264 EUR/MWh against an 8 EUR/MWh baseline: an earlier spike had inflated the naive
-std until nothing looked odd. The hours only the naive rule flags are 49 to 69 EUR/MWh on a
-near-zero baseline, real but under the 50 EUR/MWh gate. That is the case for median and MAD.
+**Logged today, not yet counted:** every LLM call writes one line to `data/logs/llm.jsonl`
+(which call, which guard fired, whether fallback text was shown, latency). A small script over
+that file would give guard rate and latency per call type.
 
-**Concrete test cases (in `tests/`, run offline on a fixture):**
-1. 2024-01-05 19:00 is the top event of Dec 8 to Jan 8; load, Swedish imports and neighbouring
-   prices support; nuclear and wind do not.
-2. 2023-12-16 19:00 to 12-17 07:00 is detected as a negative-price episode; wind forecast, actual
-   wind and residual load support; nuclear does not.
-3. A quiet hour returns `flagged = False` and the report says so before analysing it.
-4. A synthetic spike with normal drivers everywhere gives zero supporting drivers (no false
-   stories).
-5. A narrative containing a number that is not in the facts is rejected.
-6. A narrative or answer that says "caused" or "because" is rejected.
-7. A 61-day scan, a date before the cached range, or a future hour never reaches the data layer.
-8. A follow-up answer with an invented number falls back to a fixed safe text.
+**Not measurable yet, needs new work:**
+
+- Product: does the analyst accept the top hypothesis without opening another tool; time from
+  question to written note; share of investigations that end in "not enough data" and which
+  series was missing. All need the feedback button and a log of investigations run (next
+  steps, item 3).
+- Detection accuracy: how many flagged hours are truly odd, and how many odd hours we miss.
+  Needs a human-labelled list of hours. We have two confirmed events, not a list.
+- Driver verdicts: are *supports* / *does not support* right? Tests check two events. Needs
+  20 to 30 events with the expected verdict per driver.
+- Cache hit rate: how often data comes from disk instead of the API. Nothing counts it yet.
 
 ## What I would build next
 
-1. **Outages driver (ENTSO-E A80/A77):** the one signal an analyst always checks that the tool
-   cannot yet, and the most common reason for "nuclear looks fine but the price is high".
-2. **Imbalance price use case:** the data is already cached; the same driver pattern applies with
-   actual-versus-forecast wind and activated mFRR from Fingrid as the key checks.
-3. **Feedback capture in the app:** one click per investigation to store "right / wrong / missing
+1. **Outages driver (ENTSO-E):** the one signal an analyst always checks, and the usual reason
+   for "nuclear looks fine but the price is high".
+2. **Imbalance price use case:** data already cached from Fingrid; same driver pattern,
+   starting with forecast-versus-actual wind and how much backup power Fingrid had to switch
+   on.
+3. **Feedback capture in the app:** one click per investigation for "right / wrong / missing
    driver". Without it the product metrics above cannot be measured.

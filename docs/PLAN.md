@@ -51,7 +51,7 @@ Goal: show the thresholds are checked, not guessed. Reads the parquet cache only
 - [x] Known events in the ranked list: 2024-01-05 spike, 2023-11-24 bid-error day, 2023-12-17 night
 - [x] Threshold sweep (z 3/4/5, abs 30/50/80, ramp 80/100/150) to see how steep the slope is
 - [x] Compare with the textbook same-hour mean +/- 2 std rule; print the hours that disagree
-- [x] Numbers written into README "How I would know it is getting better"
+- [x] Numbers written into `docs/DETECTION.md`, summary in README "How I would know it is getting better"
 - [ ] Re-run after any change to `detect.py` or `baseline.py`
 
 ## Step 3: Driver checks (`copilot/drivers/`)
@@ -130,9 +130,15 @@ Goal: the user types "something odd happened"; the LLM only routes, plain code a
 - [x] `CLAUDE.md`, `README.md`, this plan
 - [x] Commit, tag `v0.2`
 
-## Stretch (only if time)
+## Next
 
-- [ ] Fingrid imbalance price (319) as second use case
-- [ ] ENTSO-E outages (A80) driver if token arrives
+- [ ] ENTSO-E outages (A80) driver
+- [ ] Fingrid imbalance price (319) as second use case: forecast-vs-actual wind, activated
+      reserves (mFRR up/down, datasets 244/106: backup power Fingrid switched on)
+- [ ] Feedback button per investigation (right / wrong / missing driver) + log of investigations run
+- [ ] Script over `data/logs/llm.jsonl`: guard rate and latency per call kind
+- [ ] Human-labelled hour list for detection precision / recall
+- [ ] Driver verdict regression set (20 to 30 events, expected verdict per driver)
+- [ ] Cache hit / miss counter
 - [ ] Suggested next questions after each answer (chips, still no LLM tool calls)
 - [ ] Auto-scan "latest interesting day" chip
