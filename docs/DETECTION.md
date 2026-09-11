@@ -17,24 +17,77 @@ earlier spike does not hide the next one.
 - Fewer than 7 same-type days of history (3 for weekends): no baseline, and the report says so
   instead of printing a number.
 
+### The formulas (`copilot/baseline.py`)
+
+For one hour, take the values of the same local hour on the prior same-type days in the
+lookback. Call them `x_1 ... x_n`.
+
+```
+median  = middle value of x_1 ... x_n
+MAD     = median of |x_i - median|            (median absolute deviation)
+sigma   = 1.4826 * MAD                        (MAD scaled to a std-dev equivalent)
+z       = (value - median) / max(sigma, floor)
+```
+
+In words:
+
+- **median** is the baseline: "normal price for this hour". The middle value, so one extreme day
+  does not drag it.
+- **MAD** is the spread: how far a typical day sits from the median. Also a median, so one
+  extreme day does not inflate it.
+- **sigma** is MAD rescaled. For bell-shaped data, 1.4826 × MAD equals the standard deviation,
+  so z reads like a textbook z-score.
+- **z** is how many spreads the hour sits from normal. z = 0 is normal, z = +4 is four spreads
+  above, negative is below.
+- **floor** is the smallest spread we will divide by. A very quiet hour can have a spread near
+  zero, and then a 6 EUR move becomes z = 60. The floor is a quarter of the typical spread of
+  the whole series (median sigma over all hours in the window), never below 1. On the demo month
+  the typical price spread is about 43 EUR/MWh, so the floor is about 11. A fixed floor of 1
+  was tried first and turned an ordinary 60 EUR/MWh drop into z = -61.
+
+Why median and MAD instead of mean and standard deviation: mean and std count every value with
+full weight, so a single 1,896 EUR/MWh hour inflates std for the next four weeks and hides a
+264 EUR/MWh hour behind it. Median and MAD ignore that one hour. The backtest below shows the
+difference on real data.
+
+The same function scores every driver series (wind, load, nuclear...), so "wind z = -2.1" in a
+report means the same thing: wind sat 2.1 of its own typical spreads below its usual level for
+that hour.
+
 ## The rules
 
-An hour is abnormal when any of these holds:
+Every hour gets a baseline (normal price for that hour) and a z (how many usual fluctuations it
+sits from that baseline). An hour is abnormal if **any one** of three rules hits.
 
-1. **Level.** Robust z at least 4 *and* a move of at least 50 EUR/MWh. For a crash only, giving up
-   half its baseline and at least 10 EUR/MWh also counts: a crash is bounded by its baseline while
-   a spike is not, so 40 to 3 EUR/MWh moves under 50 EUR/MWh yet is a 93% collapse. The 10 EUR/MWh
-   floor stops the relative gate from vanishing along with the baseline.
-2. **Floor.** Price at or below 0 EUR/MWh, always, even with no history.
-3. **Speed.** An hour-to-hour move of at least 100 EUR/MWh beyond what the baseline itself does
-   between those two hours, and that carries the price away from its baseline. Catches 10 to 150
-   EUR/MWh when both hours sit inside their own spread. The move back after a peak is just as
-   steep but is the return to normal, so it is not flagged.
+**Rule 1: far from normal.** The hour is at least 4 usual fluctuations from its baseline
+(z >= 4 or z <= -4), *and* the move is big in euros too.
 
-Abnormal hours merge into one episode across up to one normal hour. Episodes rank by peak |z|
-times the square root of their length, so a long event outranks a one-hour blip. Every report
-states the steepest move in the event's direction, for example +696 EUR/MWh from 15:00 to 16:00
-on the cold-snap day.
+- Spike (price above normal): the move must be at least 50 EUR/MWh.
+- Crash (price below normal): 50 EUR/MWh also works, *or* the price lost at least half its
+  baseline and at least 10 EUR/MWh. Why the second option: a spike can go up forever, but a
+  crash cannot go below zero. 40 to 3 EUR/MWh is only a 37 EUR move, yet it is a 93% collapse.
+  The 10 EUR minimum stops "half the baseline" from meaning "half of nothing" when normal is
+  already tiny.
+
+**Rule 2: zero or below.** Price at or below 0 EUR/MWh. Always flagged, even with no history.
+Negative prices are always worth explaining.
+
+**Rule 3: sudden jump.** The price moved at least 100 EUR/MWh from the previous hour, *more than
+the baseline itself moves* between those two hours, *and* the move took the price further away
+from normal.
+
+- "More than the baseline moves": every evening the baseline rises, say 40 to 90. A price going
+  40 to 90 is not a jump, it follows the shape. 40 to 200 is.
+- "Further away from normal": the hour after a spike falls just as steeply, but that is the
+  return to normal, so it is not a second event.
+- This rule catches jumps that Rule 1 misses, for example 10 to 150 EUR/MWh when both hours are
+  still inside their own usual fluctuation.
+
+**Episodes.** Flagged hours next to each other merge into one episode. One normal hour in
+between does not break the episode. Episodes are ranked by peak |z| times the square root of
+the length in hours, so a long event beats a one-hour blip but a violent short one still ranks
+high. Every report also states the steepest hour-to-hour move in the event's direction, for
+example +696 EUR/MWh from 15:00 to 16:00 on the cold-snap day.
 
 ## Backtest: `make backtest`
 

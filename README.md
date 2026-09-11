@@ -56,7 +56,7 @@ In the chat, one LLM call first reads your words and turns them into a typed req
 hour, which range, or a question). Then plain code runs the pipeline: fetch data, find the
 abnormal hours, check each driver, write the facts. The LLM comes back only at the end, to phrase
 those facts and answer follow-ups. Starter chips, table-row clicks and the CLI skip the first
-call entirely.
+call entirely. Diagrams of each step, with function names: [docs/FLOW.md](docs/FLOW.md).
 
 ### Two data sources, and what each one is for
 
@@ -93,8 +93,8 @@ API down) leaves its columns out and the drivers that need them say "not enough 
   - it jumped at least 100 EUR/MWh from the hour before, beyond the usual daily shape.
 - **Episodes:** neighbouring abnormal hours merge into one episode, ranked by size and length.
 - **Any hour:** ask about one and the report says whether it is abnormal before analysing it.
-- Full rules, the reason behind each threshold, and the backtest:
-  [docs/DETECTION.md](docs/DETECTION.md).
+- Full rules, the formulas for baseline and z, the reason behind each threshold, and the
+  backtest: [docs/DETECTION.md](docs/DETECTION.md).
 
 ### Checking drivers (plain code)
 
