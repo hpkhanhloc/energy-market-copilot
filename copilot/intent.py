@@ -175,9 +175,8 @@ def parse_intent(
     text: str, ctx: Context, *, model: str, agent: Agent[None, Intent] | None = None
 ) -> Intent:
     """Map user text to an intent; any model failure becomes a Reply, never an exception."""
-    agent = agent or build_intent_agent(model)
     prompt = f"{render_context(ctx)}\n\nUSER: {text.strip()}"
-    result, latency = timed(lambda: agent.run_sync(prompt))
+    result, latency = timed(lambda: (agent or build_intent_agent(model)).run_sync(prompt))
     if isinstance(result, Exception):
         log.warning("intent parsing failed (%s: %s)", type(result).__name__, result)
         _trace(model, prompt, repr(result), latency, guard="exception")

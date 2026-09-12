@@ -15,7 +15,7 @@ from copilot.config import ROOT
 log = logging.getLogger(__name__)
 
 type CallKind = Literal["narrative", "intent", "answer"]
-type Guard = Literal["exception", "unknown_numbers", "banned_phrase", "invented_insufficient"]
+type Guard = Literal["exception", "unknown_numbers", "banned_phrase", "invented_hypotheses"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -2,7 +2,7 @@
 
 A chat. One LLM call turns your words into a typed intent (scan a range, explain one hour,
 answer a question, or reply). Plain code runs the scan and the driver checks. Starter chips and
-table clicks never call the LLM. See views.py for the turn handling.
+table clicks skip that routing call. See views.py for the turn handling.
 """
 
 import logging

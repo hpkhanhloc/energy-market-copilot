@@ -73,7 +73,8 @@ GLOSSARY = {
     "drivers": "Each driver is one series (wind, load, nuclear...). It supports the price move "
     "if it moved in the direction that pushes the price that way, by more than its usual wobble.",
 }
-# Starter chips map straight to intents: no LLM call, so the demo works with no key.
+# Starter chips map straight to intents, skipping the routing call. The narrative call still
+# runs when the sidebar toggle is on; with no key it falls back to the code-written text.
 STARTERS: dict[str, Intent] = {
     "Spike on 5 Jan 2024 19:00": Investigate(when=datetime(2024, 1, 5, 19)),  # noqa: DTZ001
     "Negative night 16 Dec 2023": Investigate(when=datetime(2023, 12, 16, 19)),  # noqa: DTZ001

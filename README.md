@@ -124,13 +124,15 @@ returns a typed object, code checks the object. Three calls:
 
 1. **Routing** (chat only). Reads your message plus a little context: today's date, which dates
    have data, the last hour or range you looked at, the last few chat lines. Returns `Scan`,
-   `Investigate`, `Ask` or `Reply` with the dates filled in. Code then checks the dates: inside
-   the data, not in the future, at most a year per scan (60 days if it needs a download). Bad
-   output becomes a plain `Reply`.
+   `Investigate`, `Ask` or `Reply` with the dates filled in. A day with no hour becomes a
+   one-day scan: code picks the abnormal hours, never the model. Code then checks the dates: not
+   in the future, at most a year per scan (60 days if it needs a download). Bad output becomes a
+   plain `Reply`.
 2. **Narrative.** Reads the facts text that code wrote: price, baseline, each driver's value and
-   verdict. Returns `facts`, `hypotheses`, `insufficient` and a short summary. Code checks that
-   every number exists in the facts text and that no causal word ("caused", "because", "due to")
-   is used. If a check fails, or there is no LLM key, the code-written narrative is shown.
+   verdict. Returns `facts`, `hypotheses` and a short summary; the "could not check" list always
+   comes from code. Code checks that every number, date and clock time exists in the facts text
+   and that no causal wording ("caused", "because", "driven by") is used. If a check fails, or
+   there is no LLM key, the code-written narrative is shown.
 3. **Follow-up.** Reads the same facts text, the last few chat lines, and your question. Returns
    an answer. Same number and causal-word checks; a failed check gives a fixed safe reply.
    Answers from the model's own knowledge are labelled "general knowledge, not from your data".

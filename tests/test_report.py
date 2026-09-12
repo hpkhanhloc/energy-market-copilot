@@ -16,6 +16,7 @@ from copilot.report import (
     unknown_numbers_in_text,
 )
 from copilot.timeutil import ts
+from copilot.trace import last_call
 
 models.ALLOW_MODEL_REQUESTS = False
 
@@ -175,26 +176,50 @@ def test_render_facts_midnight_crossing_and_missing_baseline() -> None:
     assert "nan" not in fallback_narrative(inv).summary
 
 
-def test_narrate_drops_invented_insufficient_items(investigation: Investigation) -> None:
+def test_narrate_insufficient_list_comes_from_code(investigation: Investigation) -> None:
+    """The model cannot add 'could not check' items: code knows what it could not check."""
     from copilot.drivers.base import Verdict
 
-    full = Investigation(
+    agent = build_agent("test")
+    output = {"summary": "ok", "facts": [], "hypotheses": []}
+    with agent.override(model=TestModel(custom_output_args=output)):
+        narrative = narrate(investigation, model="test", agent=agent)
+    expected = [r.detail for r in investigation.results if r.verdict is Verdict.INSUFFICIENT]
+    assert expected
+    assert narrative.insufficient == expected
+
+
+def test_narrate_drops_hypotheses_when_no_driver_supports(investigation: Investigation) -> None:
+    from copilot.drivers.base import Verdict
+
+    none = Investigation(
         event=investigation.event,
         frame=investigation.frame,
-        results=[r for r in investigation.results if r.verdict is not Verdict.INSUFFICIENT],
+        results=[r for r in investigation.results if r.verdict is not Verdict.SUPPORTS],
         window_start=investigation.window_start,
         window_end=investigation.window_end,
     )
     agent = build_agent("test")
-    output = {
-        "summary": "ok",
-        "facts": [],
-        "hypotheses": [],
-        "insufficient": ["No fuel price data."],
-    }
+    output = {"summary": "ok", "facts": [], "hypotheses": ["Gas prices were high."]}
     with agent.override(model=TestModel(custom_output_args=output)):
-        narrative = narrate(full, model="test", agent=agent)
-    assert narrative.insufficient == []
+        narrative = narrate(none, model="test", agent=agent)
+    assert narrative.hypotheses == []
+    call = last_call()
+    assert call is not None
+    assert call.guard == "invented_hypotheses"
+    assert call.fallback is False
+
+
+def test_narrate_falls_back_when_no_provider_key(
+    investigation: Investigation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Building the agent is inside the guard: a missing key gives the code-written text."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    narrative = narrate(investigation, model="anthropic:claude-sonnet-5")
+    assert narrative == fallback_narrative(investigation)
+    call = last_call()
+    assert call is not None
+    assert call.guard == "exception"
 
 
 @pytest.mark.parametrize(

@@ -2,6 +2,7 @@
 
 import logging
 
+from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
 from copilot.drivers.base import Verdict
@@ -28,28 +29,41 @@ Rules:
 - `hypotheses`: possible reasons, one per driver whose verdict is "supports". Say "consistent
   with" or "supports". Never say "caused", "because" or "due to". Do not put "does not
   support" items here; they belong in `facts`.
-- `insufficient`: only items the FACTS mark as not enough data, one line each. If there are
-  none, return an empty list. Do not list data the system does not have.
-- `summary`: two or three plain sentences for a busy reader, hedged the same way.
+  If no driver supports, return an empty list.
+- `summary`: two or three plain sentences for a busy reader, hedged the same way. Items the
+  FACTS mark as not enough data are listed by code; mention them only in passing.
 - Keep it under 200 words in total. No headers, no markdown."""
 
 
-def build_agent(model: str) -> Agent[None, Narrative]:
-    return Agent(model, output_type=Narrative, instructions=INSTRUCTIONS, retries=3)
+class Draft(BaseModel):
+    """What the model returns. `insufficient` is not here: code knows what it could not check."""
+
+    summary: str = Field(
+        description="Two or three plain sentences: what happened and the leading explanation, hedged."
+    )
+    facts: list[str] = Field(description="Observed numbers only, one per item, each with its unit.")
+    hypotheses: list[str] = Field(
+        description="Plausible drivers the facts are consistent with. Never claim causation."
+    )
+
+
+def build_agent(model: str) -> Agent[None, Draft]:
+    return Agent(model, output_type=Draft, instructions=INSTRUCTIONS, retries=3)
 
 
 def narrate(
-    inv: Investigation, *, model: str, agent: Agent[None, Narrative] | None = None
+    inv: Investigation, *, model: str, agent: Agent[None, Draft] | None = None
 ) -> Narrative:
     """Ask the model for a Narrative; fall back to the deterministic one on any failure.
 
     If the model returns a number that is not in the facts, or causal wording, the deterministic
     narrative is used instead and the incident is logged: an honest report beats a fluent one.
+    Building the agent is inside the guarded call too, so a missing provider key falls back
+    rather than raising.
     """
     facts = render_facts(inv)
-    agent = agent or build_agent(model)
     prompt = f"FACTS:\n{facts}"
-    result, latency = timed(lambda: agent.run_sync(prompt))
+    result, latency = timed(lambda: (agent or build_agent(model)).run_sync(prompt))
     if isinstance(result, Exception):
         log.warning(
             "LLM narrative failed (%s: %s); using deterministic narrative",
@@ -58,8 +72,14 @@ def narrate(
         )
         _trace(model, prompt, repr(result), latency, guard="exception")
         return fallback_narrative(inv)
-    narrative: Narrative = result.output
-    output = narrative.model_dump_json()
+    draft: Draft = result.output
+    output = draft.model_dump_json()
+    narrative = Narrative(
+        summary=draft.summary,
+        facts=draft.facts,
+        hypotheses=draft.hypotheses,
+        insufficient=[r.detail for r in inv.results if r.verdict is Verdict.INSUFFICIENT],
+    )
     bad = unknown_numbers(narrative, facts)
     if bad:
         log.warning(
@@ -73,13 +93,12 @@ def narrate(
         _trace(model, prompt, output, latency, guard="banned_phrase")
         return fallback_narrative(inv)
     guard: Guard | None = None
-    if narrative.insufficient and not any(r.verdict is Verdict.INSUFFICIENT for r in inv.results):
-        log.info(
-            "dropping %d 'insufficient' items the model added on its own",
-            len(narrative.insufficient),
-        )
-        narrative = narrative.model_copy(update={"insufficient": []})
-        guard = "invented_insufficient"
+    if narrative.hypotheses and not any(r.verdict is Verdict.SUPPORTS for r in inv.results):
+        # Hypotheses are one per supporting driver. With none, the model has nothing to
+        # hypothesise about, so whatever it wrote is its own idea, not the data's.
+        log.info("dropping %d hypotheses with no supporting driver", len(narrative.hypotheses))
+        narrative = narrative.model_copy(update={"hypotheses": []})
+        guard = "invented_hypotheses"
     _trace(model, prompt, output, latency, guard=guard, fallback=False)
     return narrative
 

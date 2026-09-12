@@ -63,9 +63,8 @@ def answer_question(
 ) -> Answer:
     """Answer `question` about `inv`; on any failure or guard hit return a fixed safe answer."""
     facts = render_facts(inv)
-    agent = agent or build_answer_agent(model)
     prompt = _prompt(question, facts, history)
-    result, latency = timed(lambda: agent.run_sync(prompt))
+    result, latency = timed(lambda: (agent or build_answer_agent(model)).run_sync(prompt))
     if isinstance(result, Exception):
         log.warning("answer failed (%s: %s)", type(result).__name__, result)
         _trace(model, prompt, repr(result), latency, guard="exception")
