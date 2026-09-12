@@ -24,8 +24,10 @@ of the Finnish day-ahead electricity price, and the verdict of each driver check
 Rules:
 - Use only numbers that appear in the FACTS. Never invent, round differently, or compute new ones.
 - `facts`: the 4 to 6 most decisive observations with their numbers and units, one per item.
-- `hypotheses`: what the evidence is consistent with. Say "consistent with", "supports",
-  "does not support". Never say "caused", "because" or "due to".
+  Drivers that did not move, or moved the wrong way, are facts: state them here with numbers.
+- `hypotheses`: possible reasons, one per driver whose verdict is "supports". Say "consistent
+  with" or "supports". Never say "caused", "because" or "due to". Do not put "does not
+  support" items here; they belong in `facts`.
 - `insufficient`: only items the FACTS mark as not enough data, one line each. If there are
   none, return an empty list. Do not list data the system does not have.
 - `summary`: two or three plain sentences for a busy reader, hedged the same way.
