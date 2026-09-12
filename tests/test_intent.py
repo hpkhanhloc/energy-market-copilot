@@ -61,7 +61,7 @@ def test_data_reach_caps_at_today_when_last_cache_month_is_in_the_future(tmp_pat
 def test_render_context_with_no_transcript_omits_conversation_lines(ctx: Context) -> None:
     text = render_context(ctx)
     assert "today: 2026-09-10" in text
-    assert "data available:" in text
+    assert "cached data: none yet" in text
     assert "last investigated" not in text
     assert "last scanned" not in text
     assert "recent conversation" not in text
@@ -69,7 +69,7 @@ def test_render_context_with_no_transcript_omits_conversation_lines(ctx: Context
 
 def test_investigate_validator_accepts_tz_aware_pandas_timestamp() -> None:
     when = pd.Timestamp("2024-01-05 17:00", tz="UTC")  # winter UTC, +2h in Helsinki
-    inv = Investigate(when=when)  # ty: ignore[invalid-argument-type]
+    inv = Investigate(when=when)
     assert inv.when.isoformat() == "2024-01-05T19:00:00+02:00"
     assert inv.when.tzinfo is not None
 
@@ -82,10 +82,11 @@ def test_render_context_lists_anchors(ctx: Context) -> None:
         last_hour=datetime(2024, 1, 5, 19, 0),
         last_range=(date(2023, 12, 8), date(2024, 1, 8)),
         transcript=(("user", "hi"), ("assistant", "hello")),
+        cached_months=frozenset({"202311"}),
     )
     text = render_context(full)
     assert "today: 2026-09-10" in text
-    assert "data available: 2023-11-01 to 2026-09-10" in text
+    assert "cached data: 2023-11-01 to 2026-09-10" in text
     assert "last investigated hour: 2024-01-05 19:00" in text
     assert "last scanned range: 2023-12-08 to 2024-01-08" in text
     assert "  user: hi" in text
@@ -157,9 +158,15 @@ def test_guard_scan_rules(ctx: Context) -> None:
     too_long = guard_intent(Scan(start=date(2024, 1, 1), end=date(2024, 3, 15)), ctx)
     assert isinstance(too_long, Reply)
     assert "60 days" in too_long.text
-    early = guard_intent(Scan(start=date(2023, 11, 5), end=date(2023, 11, 20)), ctx)
-    assert isinstance(early, Reply)
-    assert "01 Dec 2023" in early.text  # reach_start + 30 baseline days
+    # before the cache starts: allowed, the missing months are fetched live
+    early = Scan(start=date(2023, 11, 5), end=date(2023, 11, 20))
+    assert guard_intent(early, ctx) == early
+    future = guard_intent(Scan(start=date(2026, 10, 1), end=date(2026, 10, 5)), ctx)
+    assert isinstance(future, Reply)
+    assert "future" in future.text
+    # a range running past today is clipped to today, not refused
+    clipped = guard_intent(Scan(start=date(2026, 9, 1), end=date(2026, 9, 30)), ctx)
+    assert clipped == Scan(start=date(2026, 9, 1), end=TODAY)
 
 
 def test_guard_investigate_rules(ctx: Context) -> None:
@@ -168,9 +175,24 @@ def test_guard_investigate_rules(ctx: Context) -> None:
     future = guard_intent(Investigate(when=datetime(2027, 1, 1, 12)), ctx)
     assert isinstance(future, Reply)
     assert "future" in future.text
-    early = guard_intent(Investigate(when=datetime(2023, 11, 10, 19)), ctx)
-    assert isinstance(early, Reply)
-    assert "01 Dec 2023" in early.text
+    early = Investigate(when=datetime(2023, 11, 10, 19))
+    assert guard_intent(early, ctx) is early
+
+
+def test_guard_allows_any_past_date_on_an_empty_cache() -> None:
+    """A fresh clone must be able to fetch its first month from free text."""
+    ctx = Context(today=TODAY, reach_start=TODAY, reach_end=TODAY)
+    scan = Scan(start=date(2024, 1, 1), end=date(2024, 1, 8))
+    assert guard_intent(scan, ctx) == scan
+    inv = Investigate(when=datetime(2024, 1, 5, 19))
+    assert guard_intent(inv, ctx) is inv
+    assert "cached data: none yet" in render_context(ctx)
+
+
+def test_investigate_validator_ignores_a_zone_the_model_appended() -> None:
+    """Model text is Helsinki wall-clock time whatever suffix it carries; code objects convert."""
+    for text in ("2024-01-05T19:00:00Z", "2024-01-05T19:00:00+00:00", "2024-01-05T19:00"):
+        assert Investigate(when=text).when.isoformat() == "2024-01-05T19:00:00+02:00"
 
 
 def test_guard_passes_ask_and_reply(ctx: Context) -> None:

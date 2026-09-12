@@ -6,6 +6,7 @@ The model never sees market data here. It maps words to a Scan / Investigate / A
 
 import calendar
 import logging
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -28,6 +29,7 @@ FALLBACK_TEXT = (
     "I could not read that. Try: 'what happened on 5 Jan 2024 at 19:00' or "
     "'find odd hours from 2023-12-08 to 2024-01-08'."
 )
+FUTURE_TEXT = "That date is in the future. Day-ahead prices only exist for published days."
 SCOPE_TEXT = (
     "I only look at the Finnish day-ahead power price: find abnormal hours in a date range, "
     "explain one hour, or answer questions about the current report."
@@ -41,10 +43,23 @@ class Scan(BaseModel):
     end: date
 
 
+TRAILING_ZONE = re.compile(r"(?:Z|[+-]\d{2}:?\d{2})$")
+
+
 class Investigate(BaseModel):
     """Explain one specific hour. `when` is Helsinki local time, full date and hour required."""
 
     when: datetime
+
+    @field_validator("when", mode="before")
+    @classmethod
+    def _model_text_is_helsinki(cls, value: object) -> object:
+        # The model is told times are Helsinki. When it still appends "Z" or an offset, that is
+        # decoration, not a conversion request: "2024-01-05T19:00Z" means 19:00 Helsinki.
+        # Datetime objects built by code keep their zone and are converted.
+        if isinstance(value, str):
+            return TRAILING_ZONE.sub("", value.strip())
+        return value
 
     @field_validator("when")
     @classmethod
@@ -86,8 +101,10 @@ INSTRUCTIONS = """You route messages for an energy-market copilot that explains 
 of the Finnish day-ahead electricity price. Return exactly one of:
 
 - Scan: the user wants to find abnormal / odd / interesting hours in a date range.
-- Investigate: the user names one specific hour to explain (date and hour both known).
-  Times are Europe/Helsinki. If only a day is given, use 19:00 of that day.
+- Investigate: the user names one specific hour to explain (date and hour both given).
+  Times are Europe/Helsinki; write them without a zone suffix.
+  If only a day is given ("tell me about 4 Jan 2024"), return Scan with start = end = that day
+  instead: code finds the abnormal hours of that day. Never choose an hour yourself.
 - Ask: a question about the report already on screen, about a number in it, or about a market
   term (residual load, mFRR, day-ahead, z-score ...). Also "what about 21:00" style follow-ups.
 - Reply: anything else. Out of scope (other countries, imbalance or intraday prices, gas, weather
@@ -96,8 +113,9 @@ of the Finnish day-ahead electricity price. Return exactly one of:
   short question back. Never put market numbers or claims in Reply.
 
 Use CONTEXT to resolve relative dates: "the hour before" refers to the last investigated hour,
-"widen that" refers to the last range, "yesterday" is relative to today. Only use dates inside
-the available data range; if the user asks outside it, Reply with the available range."""
+"widen that" refers to the last range, "yesterday" is relative to today. Any past date is fine:
+months not cached yet are fetched. Dates after today get a Reply saying day-ahead prices do not
+exist yet for them."""
 
 
 def build_intent_agent(model: str) -> Agent[None, Intent]:
@@ -134,10 +152,16 @@ def data_reach(cache_dir: Path, today: date) -> tuple[date, date]:
 
 def render_context(ctx: Context) -> str:
     """The CONTEXT block sent with every routing call."""
+    cached = (
+        f"{ctx.reach_start.isoformat()} to {ctx.reach_end.isoformat()}"
+        if ctx.cached_months
+        else "none yet"
+    )
     lines = [
         "CONTEXT:",
         f"today: {ctx.today.isoformat()}",
-        f"data available: {ctx.reach_start.isoformat()} to {ctx.reach_end.isoformat()}",
+        f"cached data: {cached} (other past dates are fetched live, up to {MAX_SCAN_DAYS} days "
+        "at a time)",
         f"last investigated hour: {ctx.last_hour:%Y-%m-%d %H:%M}" if ctx.last_hour else "",
         f"last scanned range: {ctx.last_range[0]} to {ctx.last_range[1]}" if ctx.last_range else "",
     ]
@@ -176,13 +200,18 @@ def parse_intent(
 
 
 def guard_intent(intent: Intent, ctx: Context, *, max_days: int = MAX_SCAN_DAYS) -> Intent:
-    """Deterministic checks on model output: range size, data reach, future dates."""
-    reach = f"{ctx.reach_start:%d %b %Y} to {ctx.reach_end:%d %b %Y}"
-    earliest = ctx.reach_start + timedelta(days=HISTORY_DAYS)
+    """Deterministic checks on model output: range size, cache-aware fetch cap, future dates.
+
+    Any past date is allowed: months not on disk are fetched live, which is why a range that
+    needs uncached months is capped at `max_days`. Only the future is refused.
+    """
     match intent:
         case Scan(start=start, end=end):
             if end < start:
                 start, end = end, start
+            if start > ctx.today:
+                return Reply(text=FUTURE_TEXT)
+            end = min(end, ctx.today)
             span = (end - start).days
             needed = months_between(start - timedelta(days=HISTORY_DAYS), end)
             missing = [m for m in needed if m not in ctx.cached_months]
@@ -194,22 +223,10 @@ def guard_intent(intent: Intent, ctx: Context, *, max_days: int = MAX_SCAN_DAYS)
                     f"scan at most {max_days} days of it at a time. Narrow the range, or warm "
                     "the cache first: uv run python scripts/warm_cache.py <start> <end>."
                 )
-            if start < earliest or end > ctx.reach_end:
-                return Reply(
-                    text=f"I have data from {earliest:%d %b %Y} to {ctx.reach_end:%d %b %Y}."
-                )
             return Scan(start=start, end=end)
         case Investigate(when=when):
-            day = when.date()
-            if day > ctx.today:
-                return Reply(
-                    text="That hour is in the future. Day-ahead prices only exist for published days."
-                )
-            if day < earliest or day > ctx.reach_end:
-                return Reply(
-                    text=f"I have data from {earliest:%d %b %Y} to {ctx.reach_end:%d %b %Y} "
-                    f"(cached from {reach}, the first 30 days are baseline only)."
-                )
+            if when.date() > ctx.today:
+                return Reply(text=FUTURE_TEXT)
             return intent
         case _:
             return intent

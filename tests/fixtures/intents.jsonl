@@ -3,7 +3,7 @@
 {"text": "why was the price so high at 7pm on January 5th 2024", "expect": "investigate", "when": "2024-01-05T19:00"}
 {"text": "look at 16 Dec 2023 evening, prices went negative", "expect": "investigate", "when": "2023-12-16T19:00"}
 {"text": "what was going on 2023-12-17 at 03:00", "expect": "investigate", "when": "2023-12-17T03:00"}
-{"text": "tell me about 4 Jan 2024", "expect": "investigate", "when": "2024-01-04T19:00"}
+{"text": "tell me about 4 Jan 2024", "expect": "scan", "start": "2024-01-04", "end": "2024-01-04"}
 {"text": "explain 31.3.2024 02:30", "expect": "investigate", "when": "2024-03-31T02:00"}
 {"text": "the hour before that", "expect": "investigate", "when": "2024-01-05T18:00", "last_hour": "2024-01-05T19:00"}
 {"text": "same time the next day", "expect": "investigate", "when": "2024-01-06T19:00", "last_hour": "2024-01-05T19:00"}

@@ -275,16 +275,15 @@ def show_turn(turn: dict[str, Any], *, latest_investigation: bool) -> None:
 
 def show_scan(turn: dict[str, Any]) -> None:
     events: list[Event] = turn["events"]
-    if not events:
-        st.write(
-            f"No abnormal hours between {turn['start']} and {turn['end']}. "
-            "Try a wider range, or name one hour."
-        )
-        return
-    st.write(
-        f"{len(events)} abnormal episodes between {turn['start']:%d %b %Y} and "
-        f"{turn['end']:%d %b %Y}, most unusual first."
+    where = (
+        f"on {turn['start']:%d %b %Y}"
+        if turn["start"] == turn["end"]
+        else f"between {turn['start']:%d %b %Y} and {turn['end']:%d %b %Y}"
     )
+    if not events:
+        st.write(f"No abnormal hours {where}. Try a wider range, or name one hour.")
+        return
+    st.write(f"{len(events)} abnormal episodes {where}, most unusual first.")
     st.dataframe(
         events_table(events),
         hide_index=True,
