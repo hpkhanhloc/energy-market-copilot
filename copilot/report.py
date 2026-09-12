@@ -129,16 +129,57 @@ def format_number(value: float, spec: str) -> str:
 
 
 NUMBER = re.compile(r"(?<![\w.])[-+]?\d[\d,]*(?:\.\d+)?\s?%?")
+MINUS_SIGNS = str.maketrans({"\u2212": "-", "\u2012": "-"})
+"""Unicode minus and figure dash read as a sign, so a flipped sign cannot hide behind them."""
+# Clock times and dates are checked as whole tokens, not as loose numbers: otherwise "19:00" and
+# "05 Jan 2024" would put 19, 5 and 2024 into the pool of allowed values for every report.
+CLOCK = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+DAY_MONTH = re.compile(
+    r"\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b",
+    re.IGNORECASE,
+)
+MONTH_DAY = re.compile(
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})(?:st|nd|rd|th)?\b",
+    re.IGNORECASE,
+)
+YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+# Small integers that read as counts, never as values: "3 of 7 drivers", "n = 28", "top 5".
+# Durations ("13 h", "28 prior days") are facts with numbers and must match the facts text.
 COUNT_CONTEXT = re.compile(
-    r"(?:\bn\s*=\s*|\b(?:of|top)\s+)?(?P<num>\b\d{1,2}\b)(?:\s*(?:h\b|hours?\b|days?\b|drivers?\b|checks?\b|of\b))?"
+    r"\bn\s*=\s*(?P<n>\d{1,2})\b"
+    r"|\btop\s+(?P<top>\d{1,2})\b"
+    r"|\b(?P<of_a>\d{1,2})\s+of\s+(?P<of_b>\d{1,2})\b"
+    r"|\b(?P<noun>\d{1,2})\s+(?:drivers?|checks?|neighbou?rs?|borders?|series|sources?)\b",
+    re.IGNORECASE,
 )
-SMALL_COUNT_LIMIT = (
-    31  # hours, days, counts of drivers: allowed without a matching fact when used as a count
-)
+SMALL_COUNT_LIMIT = 31
 
 
-BANNED = ("caused", "because", "due to", "led to", "resulted in")
-BANNED_RE = re.compile(r"\b(?:" + "|".join(re.escape(b) for b in BANNED) + r")\b", re.IGNORECASE)
+# Causal wording, with the verb forms the model actually produces. Matched case-insensitively.
+BANNED = (
+    r"caus(?:e|es|ed|ing)",
+    r"because",
+    r"due to",
+    r"owing to",
+    r"thanks to",
+    r"led to",
+    r"lead(?:s|ing)? to",
+    r"result(?:ed|s|ing)? (?:in|from)",
+    r"as a result",
+    r"drove",
+    r"driven by",
+    r"drives? (?:up|down|prices?)",
+    r"trigger(?:s|ed|ing)?",
+    r"explain(?:s|ed) (?:by|the|this|that|why|it)",
+    r"explained by",
+    r"attributable to",
+    r"stem(?:s|med|ming) from",
+    r"responsible for",
+    r"pushed (?:up|down|prices?)",
+)
+BANNED_RE = re.compile(r"\b(?:" + "|".join(BANNED) + r")\b", re.IGNORECASE)
 
 
 def unknown_numbers(narrative: Narrative, facts: str) -> list[str]:
@@ -150,11 +191,13 @@ def unknown_numbers(narrative: Narrative, facts: str) -> list[str]:
 
 
 def unknown_numbers_in_text(text: str, facts: str) -> list[str]:
-    """Numbers in `text` that do not appear in the facts text (possible hallucinations)."""
+    """Numbers, clock times and dates in `text` that the facts text does not contain."""
+    text, text_times = _split_times(text.translate(MINUS_SIGNS))
+    facts, fact_times = _split_times(facts.translate(MINUS_SIGNS))
+    found: list[str] = [t for t in dict.fromkeys(text_times) if t not in set(fact_times)]
     pools = _sign_pools(facts)
     anywhere = pools["-"] | pools["+"] | pools[""]
     counts = _count_numbers(text)
-    found: list[str] = []
     for raw in NUMBER.findall(text):
         value = _norm(raw)
         sign = raw.strip()[0] if _has_sign(raw) else ""
@@ -170,19 +213,48 @@ def unknown_numbers_in_text(text: str, facts: str) -> list[str]:
     return found
 
 
+def _split_times(text: str) -> tuple[str, list[str]]:
+    """Pull clock times and dates out of `text` as normalised tokens ("19:00", "5 jan", "2024")."""
+    tokens: list[str] = []
+
+    def clock(m: re.Match[str]) -> str:
+        tokens.append(f"{int(m.group(1)):02d}:{m.group(2)}")
+        return " "
+
+    def iso(m: re.Match[str]) -> str:
+        tokens.extend((m.group(1), f"{int(m.group(3))} {MONTHS[int(m.group(2)) - 1]}"))
+        return " "
+
+    def day_month(m: re.Match[str]) -> str:
+        tokens.append(f"{int(m.group(1))} {m.group(2).lower()}")
+        return " "
+
+    def month_day(m: re.Match[str]) -> str:
+        tokens.append(f"{int(m.group(2))} {m.group(1).lower()}")
+        return " "
+
+    def year(m: re.Match[str]) -> str:
+        tokens.append(m.group(0))
+        return " "
+
+    text = CLOCK.sub(clock, text)
+    text = ISO_DATE.sub(iso, text)
+    text = DAY_MONTH.sub(day_month, text)
+    text = MONTH_DAY.sub(month_day, text)
+    text = YEAR.sub(year, text)
+    return text, tokens
+
+
 def banned_phrases(text: str) -> list[str]:
-    """Causal words the report must not use ("caused", "because", "due to"), lowercased."""
+    """Causal wording the report must not use ("caused", "because", "driven by"), lowercased."""
     return [m.group(0).lower() for m in BANNED_RE.finditer(text)]
 
 
 def _count_numbers(text: str) -> set[str]:
-    """Small integers that read as counts ("19 h", "n = 28", "3 of 7 drivers"), not values."""
-    counts: set[str] = set()
-    for match in COUNT_CONTEXT.finditer(text):
-        whole = match.group(0)
-        if whole != match.group("num"):  # some count context matched around the number
-            counts.add(match.group("num"))
-    return counts
+    """Small integers that read as counts ("n = 28", "3 of 7 drivers", "top 5"), not values."""
+    return {
+        value for m in COUNT_CONTEXT.finditer(text) for value in m.groupdict().values() if value
+    }
 
 
 def _texts(narrative: Narrative) -> Iterable[str]:

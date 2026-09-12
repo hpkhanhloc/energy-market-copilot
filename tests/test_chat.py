@@ -28,10 +28,22 @@ def investigation() -> Investigation:
     return investigate_at(MarketFrame(data=data), ts("2024-01-05 17:00"))
 
 
-def answer(investigation: Investigation, output: dict, history=()) -> Answer:
+def answer(
+    investigation: Investigation, output: dict, history=(), question: str = "why?"
+) -> Answer:
     agent = build_answer_agent("test")
     with agent.override(model=TestModel(custom_output_args=output)):
-        return answer_question("why?", investigation, history, model="test", agent=agent)
+        return answer_question(question, investigation, history, model="test", agent=agent)
+
+
+def test_numbers_from_the_question_may_be_echoed(investigation: Investigation) -> None:
+    """'What about 21:00?' -> 'The report covers 19:00 only; 21:00 is not in it. must survive."""
+    text = "The report covers 19:00 only; 21:00 is not in it."
+    out = answer(
+        investigation, {"text": text, "hour_not_in_report": True}, question="what about 21:00?"
+    )
+    assert out.text == text
+    assert out.hour_not_in_report is True
 
 
 def test_answer_from_report_passes_through(investigation: Investigation) -> None:

@@ -72,7 +72,9 @@ def answer_question(
         return Answer(text=FALLBACK_ANSWER, source="report")
     answer: Answer = result.output
     output = answer.model_dump_json()
-    bad = unknown_numbers_in_text(answer.text, facts)
+    # Numbers the user typed ("what about 21:00?") may be echoed back, e.g. to say the report
+    # does not cover that hour.
+    bad = unknown_numbers_in_text(answer.text, f"{facts}\nQUESTION: {question}")
     if bad:
         log.warning("answer used numbers not in the facts %s", bad)
         _trace(model, prompt, output, latency, guard="unknown_numbers")

@@ -72,13 +72,37 @@ def test_unknown_numbers_accepts_sign_newline_and_year_variants() -> None:
 
 
 def test_unknown_numbers_flags_invented_values() -> None:
-    facts = "Peak: 1,896 EUR/MWh. Load 13,784 MW (21%)."
+    facts = "Peak: 1,896 EUR/MWh over 3 h. Load 13,784 MW (21%)."
     good = Narrative(
         summary="Peak 1896 EUR/MWh, load 13,784 MW, 21% above, 3 hours.", facts=[], hypotheses=[]
     )
-    bad = Narrative(summary="Peak 1900 EUR/MWh.", facts=["load up 25%"], hypotheses=[])
+    bad = Narrative(summary="Peak 1900 EUR/MWh for 12 hours.", facts=["load up 25%"], hypotheses=[])
     assert unknown_numbers(good, facts) == []
-    assert unknown_numbers(bad, facts) == ["1900", "25%"]
+    assert unknown_numbers(bad, facts) == ["1900", "12", "25%"]
+
+
+def test_number_guard_does_not_whitelist_a_value_after_of_or_before_hours() -> None:
+    """'baseline of 30' and '12 hours' are values, not counts; both must match the facts."""
+    facts = "- Window: 19:00 (1 h, Europe/Helsinki)\n- Baseline 52 EUR/MWh"
+    assert unknown_numbers_in_text("The baseline of 30 EUR/MWh", facts) == ["30"]
+    assert unknown_numbers_in_text("Prices stayed high for 12 hours", facts) == ["12"]
+    assert unknown_numbers_in_text("Prices stayed high for 1 hour", facts) == []
+
+
+def test_number_guard_checks_dates_and_times_as_tokens() -> None:
+    """Dates and clock times never feed the pool of allowed values, and must match as a whole."""
+    facts = "## Spike on Fri 05 Jan 2024\n- Peak: 1,896 EUR/MWh at 19:00"
+    assert unknown_numbers_in_text("On 5 January 2024 at 19:00 the peak was 1,896", facts) == []
+    assert unknown_numbers_in_text("On 2024-01-05 the peak was 1,896", facts) == []
+    assert unknown_numbers_in_text("load was 19 GW", facts) == ["19"]
+    assert unknown_numbers_in_text("a baseline of 2,024 EUR/MWh", facts) == ["2,024"]
+    assert unknown_numbers_in_text("at 21:00 the peak was 1,896", facts) == ["21:00"]
+    assert unknown_numbers_in_text("on 6 Jan the peak was 1,896", facts) == ["6 jan"]
+
+
+def test_number_guard_reads_a_unicode_minus_as_a_sign() -> None:
+    facts = "- Deviation: +1,845 EUR/MWh"
+    assert unknown_numbers_in_text("the deviation was \u22121,845 EUR/MWh", facts) == ["-1,845"]
 
 
 def test_narrate_uses_model_output_when_numbers_check_out(investigation: Investigation) -> None:
@@ -181,6 +205,11 @@ def test_narrate_drops_invented_insufficient_items(investigation: Investigation)
         ("High load due to cold weather led to a spike", ["due to", "led to"]),
         ("This is consistent with low wind", []),
         ("becauseless word", []),
+        ("Low wind causes spikes", ["causes"]),
+        ("High demand drove prices up; driven by cold", ["drove", "driven by"]),
+        ("Triggered by an outage, as a result of the cold", ["triggered", "as a result"]),
+        ("Thanks to low wind, the gap was explained by imports", ["thanks to", "explained by"]),
+        ("Drivers the evidence supports; I can explain one hour", []),
     ],
 )
 def test_banned_phrases(text: str, hits: list[str]) -> None:
