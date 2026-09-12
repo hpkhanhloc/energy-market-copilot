@@ -150,7 +150,7 @@ No agents, no tool use, so the evidence is the same on every run.
   the textbook mean-plus-two-std rule, ours catches a 264 EUR/MWh hour the naive rule misses,
   because an earlier spike had inflated the naive std. Details in
   [docs/DETECTION.md](docs/DETECTION.md).
-- Routing: `make eval` scores the intent call on a fixed prompt set. 28 prompts, 96%.
+- Routing: `make eval` scores the intent call on a fixed prompt set. 28 prompts, 100% on the last run.
 - Tests in `tests/` pin both demo investigations, a quiet hour, a synthetic spike with normal
   drivers, and every guard.
 

@@ -125,7 +125,7 @@ Goal: the user types "something odd happened"; the LLM only routes, plain code a
 ## Step 9: Eval + docs
 
 - [x] `tests/fixtures/intents.jsonl` (28 cases) + `scripts/eval_intents.py` + `make eval`
-      (real model, not in CI). First run 86%, after prompt fix 96%.
+      (real model, not in CI). First run 86%, after prompt fix 96%, after the one-day-scan rule 100%.
 - [x] Offline tests for every guard path with `TestModel`
 - [x] `CLAUDE.md`, `README.md`, this plan
 - [x] Commit, tag `v0.2`
