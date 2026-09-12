@@ -102,9 +102,20 @@ API down) leaves its columns out and the drivers that need them say "not enough 
   of three verdicts: *supports*, *does not support*, *not enough data*.
 - **"Supports" means:** the series moved in the direction that would push the price the way it
   went, by a clear margin over its own normal spread.
-- **Drivers checked:** day-ahead wind forecast, actual wind, nuclear, load, imports from Sweden,
-  neighbouring prices, and residual load (load minus wind minus nuclear).
 - **Missing data** becomes "not enough data", never a guess.
+
+| Driver | Series | Supports a spike when | Supports a crash when |
+|---|---|---|---|
+| Wind forecast (day-ahead) | ENTSO-E wind forecast | lower than usual | higher |
+| Wind generation (actual) | ENTSO-E generation, Fingrid fallback | lower | higher |
+| Nuclear generation | ENTSO-E generation, Fingrid fallback | lower | higher |
+| Consumption (actual load) | ENTSO-E load | higher | lower |
+| Imports from Sweden (SE1+SE3) | ENTSO-E border flows | lower | higher |
+| Neighbouring prices | ENTSO-E SE1, SE3, EE, NO4 prices | higher | lower |
+| Residual load | load minus wind minus nuclear | higher | lower |
+
+Wind forecast and actual wind are separate on purpose: the day-ahead price is set on the
+forecast, so the forecast is the real driver and actual wind cross-checks it.
 
 ### Where the LLM comes in (three calls, all guarded)
 
