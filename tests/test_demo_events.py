@@ -75,4 +75,16 @@ def test_scan_since_keeps_negative_night_in_range(frame: MarketFrame) -> None:
     events = scan(frame, top_n=8, since=helsinki("2023-12-15"))
     kinds = {(e.kind, e.start.tz_convert("Europe/Helsinki").strftime("%m-%d")) for e in events}
     assert (EventKind.NEGATIVE, "12-17") in kinds
-    assert all(e.start >= helsinki("2023-12-15") for e in events)
+    assert all(e.end >= helsinki("2023-12-15") for e in events)
+
+
+def test_scan_since_keeps_an_episode_that_started_before_the_range(frame: MarketFrame) -> None:
+    """The 5 Jan spike runs 06:00 to 02:00 next day; 'odd hours on 6 Jan' must still show it."""
+    events = scan(frame, top_n=10, since=helsinki("2024-01-06"))
+    starts = {e.start.tz_convert("Europe/Helsinki").strftime("%m-%d %H:%M") for e in events}
+    assert "01-05 06:00" in starts
+    assert all(e.end >= helsinki("2024-01-06") for e in events)
+    before = scan(frame, top_n=10, since=helsinki("2024-01-07"))
+    assert "01-05 06:00" not in {
+        e.start.tz_convert("Europe/Helsinki").strftime("%m-%d %H:%M") for e in before
+    }

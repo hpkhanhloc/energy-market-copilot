@@ -74,16 +74,18 @@ def scan(
     top_n: int = 5,
     since: pd.Timestamp | None = None,
 ) -> list[Event]:
-    """Strongest price events in the frame, optionally only those starting at/after `since`.
+    """Strongest price events in the frame, optionally only those touching hours at/after `since`.
 
     The frame usually carries extra history for the baseline; `since` keeps that history out of
-    the ranking so events in the requested range are not crowded out by earlier ones.
+    the ranking so events in the requested range are not crowded out by earlier ones. An episode
+    that starts before `since` and runs into the range still counts: its hours inside the range
+    are abnormal, and saying "no abnormal hours" about them would be false.
     """
     _require_price(frame)
     events = find_events(frame.data["price_fi"], config, top_n=None)
     if since is not None:
         cutoff = to_utc(since)
-        events = [e for e in events if e.start >= cutoff]
+        events = [e for e in events if e.end >= cutoff]
     return events[:top_n]
 
 
