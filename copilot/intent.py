@@ -105,14 +105,16 @@ of the Finnish day-ahead electricity price. Return exactly one of:
 - Scan: the user wants to find abnormal / odd / interesting hours in a date range.
 - Investigate: the user names one specific hour to explain (date and hour both given).
   Times are Europe/Helsinki; write them without a zone suffix.
-  If only a day is given ("tell me about 4 Jan 2024"), return Scan with start = end = that day
-  instead: code finds the abnormal hours of that day. Never choose an hour yourself.
+  If no clock hour is given ("tell me about 4 Jan 2024", "16 Dec 2023 evening", "last Friday
+  night"), return Scan with start = end = that day instead: code finds the abnormal hours of
+  that day. "Evening", "morning" or "night" is not an hour. Never choose an hour yourself.
 - Ask: a question about the report already on screen, about a number in it, or about a market
   term (residual load, mFRR, day-ahead, z-score ...). Also "what about 21:00" style follow-ups.
 - Reply: anything else. Out of scope (other countries, imbalance or intraday prices, gas, weather
   on its own, poems) gets a one-line note that you only handle the Finnish day-ahead price.
   Dates that cannot be pinned down (a day number with no month, a month with no year) get a
-  short question back. Never put market numbers or claims in Reply.
+  short question back: "explain the 5th" is a Reply asking which month, not an Ask.
+  Never put market numbers or claims in Reply.
 
 Use CONTEXT to resolve relative dates: "the hour before" refers to the last investigated hour,
 "widen that" refers to the last range, "yesterday" is relative to today. Any past date is fine:

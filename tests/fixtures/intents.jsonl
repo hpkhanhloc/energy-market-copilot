@@ -1,7 +1,7 @@
 {"text": "what happened on 5 Jan 2024 at 19:00?", "expect": "investigate", "when": "2024-01-05T19:00"}
 {"text": "explain 2024-01-05 19:00", "expect": "investigate", "when": "2024-01-05T19:00"}
 {"text": "why was the price so high at 7pm on January 5th 2024", "expect": "investigate", "when": "2024-01-05T19:00"}
-{"text": "look at 16 Dec 2023 evening, prices went negative", "expect": "investigate", "when": "2023-12-16T19:00"}
+{"text": "look at 16 Dec 2023 evening, prices went negative", "expect": "scan", "start": "2023-12-16", "end": "2023-12-16"}
 {"text": "what was going on 2023-12-17 at 03:00", "expect": "investigate", "when": "2023-12-17T03:00"}
 {"text": "tell me about 4 Jan 2024", "expect": "scan", "start": "2024-01-04", "end": "2024-01-04"}
 {"text": "explain 31.3.2024 02:30", "expect": "investigate", "when": "2024-03-31T02:00"}
@@ -21,7 +21,7 @@
 {"text": "what is mFRR", "expect": "ask"}
 {"text": "write me a poem about cats", "expect": "reply"}
 {"text": "what was the imbalance price yesterday?", "expect": "reply"}
-{"text": "what happened last Friday evening?", "expect": "investigate", "when": "2026-09-04T19:00"}
+{"text": "what happened last Friday evening?", "expect": "scan", "start": "2026-09-04", "end": "2026-09-04"}
 {"text": "explain the 5th", "expect": "reply"}
 {"text": "hello, what can you do?", "expect": "reply"}
 {"text": "show me German prices for 2024-01-05", "expect": "reply"}

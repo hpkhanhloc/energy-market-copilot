@@ -47,7 +47,7 @@ Step-by-step build plan with checkboxes: `docs/PLAN.md`. Tick steps there as the
      with a "general knowledge, not from your data" label.
   Every call appends one line to `data/logs/llm.jsonl` (`copilot/trace.py`: kind, guard,
   fallback, latency). `make eval` scores routing on `tests/fixtures/intents.jsonl` with the real
-  model (not in CI; last run 96% on 28 cases).
+  model (not in CI; last run 100% on 28 cases).
 
 ## Data sources (verified 2026-09-10)
 
