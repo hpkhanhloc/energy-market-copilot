@@ -288,7 +288,7 @@ def show_scan(turn: dict[str, Any]) -> None:
     st.dataframe(
         events_table(events),
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config=table_help(),
     )
     st.caption("Hover a column header for what it means. Rarity above 4 counts as abnormal.")
@@ -390,7 +390,7 @@ def show_investigation(inv: Investigation, narrative: Narrative, figures: dict) 
             for item in narrative.insufficient:
                 st.markdown(f"- {item}")
 
-    st.plotly_chart(figures["price"], use_container_width=True)
+    st.plotly_chart(figures["price"], width="stretch")
 
     st.markdown("**Driver checks**", help=GLOSSARY["drivers"])
     for verdict, heading, note in VERDICT_GROUPS:
@@ -405,6 +405,6 @@ def show_investigation(inv: Investigation, narrative: Narrative, figures: dict) 
                 st.markdown(r.detail)
                 fig = figures.get(r.name)
                 if fig is not None:
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
     with st.expander("Full report as text"):
         st.markdown(render_facts(inv))

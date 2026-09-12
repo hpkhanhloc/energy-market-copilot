@@ -42,7 +42,7 @@ with st.sidebar:
         "Off: a fixed template. Numbers, verdicts and charts do not change either way.",
     )
     st.caption(f"Model: `{settings.copilot_model}` (COPILOT_MODEL in .env)")
-    st.button("Clear chat", on_click=clear_chat, use_container_width=True)
+    st.button("Clear chat", on_click=clear_chat, width="stretch")
     with st.expander("Developer: last LLM call"):
         call = last_call()
         if call is None:
