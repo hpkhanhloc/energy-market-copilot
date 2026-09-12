@@ -71,3 +71,17 @@ def test_timed_returns_result_or_exception() -> None:
 
     err, _ = timed(boom)
     assert isinstance(err, RuntimeError)
+
+
+def test_last_call_skips_a_truncated_or_foreign_line(tmp_path: Path) -> None:
+    """The sidebar reads this on every rerun; one bad line must not take the app down."""
+    path = tmp_path / "llm.jsonl"
+    record(BASE, path)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write('{"kind": "intent", "model": "m", "inp\n')  # killed mid-write
+        fh.write('{"kind": "intent", "model": "m"}\n')  # older schema, fields missing
+    last = last_call(path)
+    assert last is not None
+    assert last.kind == "narrative"
+    path.write_text("not json at all\n")
+    assert last_call(path) is None

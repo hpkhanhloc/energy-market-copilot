@@ -49,15 +49,23 @@ def record(call: LlmCall, path: Path | None = None) -> None:
 
 
 def last_call(path: Path | None = None) -> LlmCall | None:
-    """The most recent recorded call, or None when the log is empty or missing."""
+    """The most recent readable call, or None when the log is empty or missing.
+
+    A truncated last line (a run killed mid-write) or a line from an older schema is skipped,
+    never raised: the app reads this in its sidebar on every rerun.
+    """
     target = path or trace_path()
     try:
         lines = target.read_text(encoding="utf-8").splitlines()
     except OSError:
         return None
     for line in reversed(lines):
-        if line.strip():
+        if not line.strip():
+            continue
+        try:
             return LlmCall(**json.loads(line))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            log.warning("skipping unreadable trace line in %s: %s", target, exc)
     return None
 
 

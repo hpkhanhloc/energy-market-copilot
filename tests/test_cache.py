@@ -104,3 +104,38 @@ def test_an_empty_result_is_not_cached(tmp_path: Path) -> None:
     second = cached_frame("k", fetch, cache_dir=tmp_path)  # the next call gets real data
     pd.testing.assert_frame_equal(second, _frame(2.0))
     assert (tmp_path / "k.parquet").exists()
+
+
+def test_a_partial_month_file_is_refetched_once_the_month_is_over(tmp_path: Path) -> None:
+    """A month cached while in progress holds days 1..n only; it must not be served forever."""
+    import os
+
+    from copilot.data.cache import cached_range
+
+    calls: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+
+    def fetch(start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+        calls.append((start, end))
+        idx = pd.date_range(start, end, freq="1h", inclusive="left", name="time")
+        return pd.DataFrame({"x": range(len(idx))}, index=idx)
+
+    # Written on 10 Dec while December was still running: the file is a partial month.
+    partial = cached_range(
+        "t", ts("2025-12-01"), ts("2025-12-10"), fetch, cache_dir=tmp_path, now=ts("2025-12-10")
+    )
+    assert len(partial) == 9 * 24
+    path = tmp_path / "t_202512.parquet"
+    written = ts("2025-12-10").timestamp()
+    os.utime(path, (written, written))
+
+    # A month later the same file would be 'fresh forever' by TTL alone.
+    full = cached_range(
+        "t", ts("2025-12-15"), ts("2025-12-25"), fetch, cache_dir=tmp_path, now=ts("2026-01-10")
+    )
+    assert len(calls) == 2
+    assert len(full) == 10 * 24
+    # The refetched file was written after the month ended, so it now stays.
+    cached_range(
+        "t", ts("2025-12-15"), ts("2025-12-25"), fetch, cache_dir=tmp_path, now=ts("2026-01-10")
+    )
+    assert len(calls) == 2

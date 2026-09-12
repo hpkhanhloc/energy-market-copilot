@@ -8,9 +8,11 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 import pandas as pd
+import requests
 
 from copilot.data import fingrid_source
 from copilot.data.entsoe import FI, NEIGHBOURS
+from copilot.data.fingrid import FingridError
 from copilot.timeutil import to_utc
 
 log = logging.getLogger(__name__)
@@ -19,6 +21,9 @@ Fetcher = Callable[[], pd.Series | pd.DataFrame]
 ATTEMPTS = 3
 BACKOFF_S = (5.0, 20.0)
 """ENTSO-E answers 400/5xx now and then under parallel load; a short retry usually fixes it."""
+RETRYABLE = (requests.RequestException, FingridError, ConnectionError, TimeoutError)
+"""Transport and HTTP failures. Anything else (no matching data, a parsing bug) is the same on
+every attempt, so retrying only delays the 'could not load' answer by the whole backoff."""
 
 
 class EntsoeLike(Protocol):
@@ -116,7 +121,7 @@ def _safe(
         try:
             return fetch()
         except Exception as exc:
-            if attempt == ATTEMPTS:
+            if attempt == ATTEMPTS or not isinstance(exc, RETRYABLE):
                 log.warning("could not load %s: %s: %s", name, type(exc).__name__, str(exc)[:200])
                 return None
             log.info("retrying %s after %s (attempt %d)", name, type(exc).__name__, attempt)

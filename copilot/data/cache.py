@@ -41,10 +41,16 @@ def cached_frame(
     *,
     cache_dir: Path,
     ttl: timedelta | None = None,
+    complete_after: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Return the cached parquet for `key` if fresh, else call `fetch`, store, return."""
+    """Return the cached parquet for `key` if fresh, else call `fetch`, store, return.
+
+    `complete_after` is when the data behind `key` stopped changing (the end of its month). A
+    file written before that was fetched while the month was still in progress, so it holds a
+    partial month and is refetched once, however old it is.
+    """
     path = cache_dir / f"{key}.parquet"
-    if path.exists() and _fresh(path, ttl):
+    if path.exists() and _fresh(path, ttl, complete_after):
         log.debug("cache hit %s", path.name)
         return pd.read_parquet(path)
     frame = fetch()
@@ -60,11 +66,14 @@ def cached_frame(
     return frame
 
 
-def _fresh(path: Path, ttl: timedelta | None) -> bool:
+def _fresh(path: Path, ttl: timedelta | None, complete_after: pd.Timestamp | None = None) -> bool:
+    mtime = path.stat().st_mtime
+    if complete_after is not None and mtime < complete_after.timestamp():
+        log.info("cache file %s predates the end of its month: refetching", path.name)
+        return False
     if ttl is None:
         return True
-    age = time.time() - path.stat().st_mtime
-    return age < ttl.total_seconds()
+    return time.time() - mtime < ttl.total_seconds()
 
 
 RangeFetch = Callable[[pd.Timestamp, pd.Timestamp], pd.DataFrame]
@@ -94,9 +103,11 @@ def cached_range(
     """Fetch and cache one parquet per calendar month, then return the clipped [start, end).
 
     Month granularity means any later window that overlaps a fetched month is free, and only
-    the month containing "now" ever expires (see `ttl_for`).
+    the month containing "now" ever expires (see `ttl_for`). A month file written before that
+    month ended is partial and is refetched once the month is over.
     """
     start, end = ts(start).tz_convert("UTC"), ts(end).tz_convert("UTC")
+    now = now or pd.Timestamp.now(tz=UTC)
     parts: list[pd.DataFrame] = []
     for chunk_start, chunk_end in month_chunks(start, end):
         key = cache_key(prefix, chunk_start.strftime("%Y%m"))
@@ -105,6 +116,7 @@ def cached_range(
             lambda s=chunk_start, e=chunk_end: fetch(s, e),
             cache_dir=cache_dir,
             ttl=ttl_for(chunk_end, now),
+            complete_after=chunk_end if chunk_end <= now else None,
         )
         parts.append(part)
     if not parts:

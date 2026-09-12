@@ -33,7 +33,7 @@ from copilot.investigate import Investigation, investigate_at, load_window, scan
 from copilot.llm import narrate
 from copilot.plots import all_figures
 from copilot.report import Narrative, fallback_narrative, format_number, render_facts
-from copilot.timeutil import helsinki
+from copilot.timeutil import helsinki, ts
 
 TZ = "Europe/Helsinki"
 HISTORY_DAYS = 30  # fetched before a scan range so the baseline exists on day one
@@ -97,6 +97,15 @@ def cached_window(start: str, end: str) -> MarketFrame:
 @st.cache_data(show_spinner="Writing the summary...")
 def cached_narrative(facts: str, model: str, _inv: Investigation) -> dict:
     return narrate(_inv, model=model).model_dump()
+
+
+def window(start: pd.Timestamp, end: pd.Timestamp) -> MarketFrame:
+    """`cached_window`, but a frame with series that failed to load is not kept for the life of
+    the process: its cache entry is dropped so the next request fetches again."""
+    frame = cached_window(str(start), str(end))
+    if frame.missing:
+        cached_window.clear(str(start), str(end))
+    return frame
 
 
 def narrative_for(inv: Investigation, *, model: str, ai: bool) -> Narrative:
@@ -197,8 +206,8 @@ def handle_intent(intent: Intent, settings: Settings, *, ai: bool) -> None:
 
 def run_scan(start: date, end: date) -> dict[str, Any]:
     since = helsinki(str(start))
-    frame = cached_window(
-        str(since - pd.Timedelta(days=HISTORY_DAYS)), str(end + timedelta(days=1))
+    frame = window(
+        ts(since - pd.Timedelta(days=HISTORY_DAYS)), helsinki(str(end + timedelta(days=1)))
     )
     events = scan(frame, top_n=10, since=since)
     return {"role": "assistant", "kind": "scan", "start": start, "end": end, "events": events}
@@ -206,7 +215,7 @@ def run_scan(start: date, end: date) -> dict[str, Any]:
 
 def run_investigate(when: pd.Timestamp, settings: Settings, *, ai: bool) -> dict[str, Any]:
     start, end = window_for(when)
-    inv = investigate_at(cached_window(str(start), str(end)), when)
+    inv = investigate_at(window(start, end), when)
     return {
         "role": "assistant",
         "kind": "investigation",
@@ -249,6 +258,7 @@ def is_clear_command(text: str) -> bool:
 def clear_chat() -> None:
     st.session_state["turns"] = []
     st.session_state["pending"] = None
+    cached_window.clear()  # a retry after a failed fetch must hit the network again
     for key in [k for k in st.session_state if str(k).startswith("pick_")]:
         del st.session_state[key]
 

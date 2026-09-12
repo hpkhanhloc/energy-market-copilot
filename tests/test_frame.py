@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import requests
 
 from copilot.data.frame import build_market_frame
 from copilot.timeutil import helsinki, ts
@@ -80,7 +81,7 @@ def test_safe_retries_transient_errors() -> None:
     def flaky() -> pd.Series:
         attempts.append(1)
         if len(attempts) < 3:
-            raise RuntimeError("400 Bad Request")
+            raise requests.HTTPError("400 Bad Request")
         return _hours([1.0], "x")
 
     result = _safe(("x", flaky), sleep=lambda _: None)
@@ -92,6 +93,22 @@ def test_safe_gives_up() -> None:
     from copilot.data.frame import _safe
 
     def broken() -> pd.Series:
-        raise RuntimeError("nope")
+        raise requests.ConnectionError("nope")
 
     assert _safe(("x", broken), sleep=lambda _: None) is None
+
+
+def test_safe_does_not_retry_a_deterministic_error() -> None:
+    """A parsing bug or 'no matching data' is the same on every attempt: fail fast, no sleep."""
+    from copilot.data.frame import _safe
+
+    attempts: list[int] = []
+    slept: list[float] = []
+
+    def broken() -> pd.Series:
+        attempts.append(1)
+        raise KeyError("Wind")
+
+    assert _safe(("x", broken), sleep=slept.append) is None
+    assert len(attempts) == 1
+    assert slept == []
