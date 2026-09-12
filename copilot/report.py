@@ -114,7 +114,7 @@ def fallback_narrative(inv: Investigation) -> Narrative:
     return Narrative(
         summary=summary,
         facts=[r.detail for r in inv.results if r.verdict is not Verdict.INSUFFICIENT],
-        hypotheses=[f"Consistent with: {r.hypothesis}" for r in supporting],
+        hypotheses=[r.hypothesis for r in supporting],
         insufficient=[r.detail for r in inv.results if r.verdict is Verdict.INSUFFICIENT],
     )
 

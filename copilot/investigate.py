@@ -15,9 +15,10 @@ from copilot.timeutil import to_utc, ts
 log = logging.getLogger(__name__)
 
 HISTORY_DAYS = 30
-"""Days fetched before the event so the same-hour baseline has enough samples.
+"""Days fetched before the event.
 
-30 calendar days holds ~20 weekdays and ~8 weekend days, and the two are pooled separately.
+The baseline looks back 28 days (`BaselineConfig.days`: 20 weekdays and 8 weekend days, pooled
+separately). Fetching 30 leaves two days of slack so the event day itself has a full window.
 """
 AFTER_DAYS = 2
 

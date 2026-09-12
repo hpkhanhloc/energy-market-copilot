@@ -57,7 +57,7 @@ def test_fallback_narrative_separates_lists(investigation: Investigation) -> Non
     assert "1,896 EUR/MWh" in narrative.summary
     assert "not proof of cause" in narrative.summary
     assert narrative.hypotheses == [
-        "Consistent with: Low forecast wind for these hours (less cheap supply in the day-ahead auction)."
+        "Low forecast wind for these hours (less cheap supply in the day-ahead auction)."
     ]
     assert any("no data" in item or "no cross-border" in item for item in narrative.insufficient)
     assert unknown_numbers(narrative, render_facts(investigation)) == []

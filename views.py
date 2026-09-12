@@ -57,6 +57,22 @@ VERDICT_GROUPS = (
     ),
     (Verdict.INSUFFICIENT, "Could not check", "Data missing for these hours."),
 )
+# Plain-language tooltips. Keys for the scan table match its column names.
+GLOSSARY = {
+    "What": "Spike: far above normal. Crash: far below normal but still positive. "
+    "Negative: at or below 0 EUR/MWh, always abnormal.",
+    "Peak EUR/MWh": "Highest (spike) or lowest (crash, negative) price in the episode.",
+    "Usual EUR/MWh": "Normal price for this hour: the median of the same Helsinki hour on "
+    "recent days of the same type (weekday or weekend), last 4 weeks.",
+    "Difference EUR/MWh": "Peak minus usual.",
+    "Rarity (z)": "How many usual day-to-day wobbles the peak sits from normal. "
+    "z 1 is an ordinary day, z 4 almost never happens by chance. Sign is the direction.",
+    "facts": "Numbers computed by code from the data. Not opinions.",
+    "hypotheses": "Possible reasons, one per driver that moved the right way. Not proven: "
+    "the data shows what moved together, not what caused what.",
+    "drivers": "Each driver is one series (wind, load, nuclear...). It supports the price move "
+    "if it moved in the direction that pushes the price that way, by more than its usual wobble.",
+}
 # Starter chips map straight to intents: no LLM call, so the demo works with no key.
 STARTERS: dict[str, Intent] = {
     "Spike on 5 Jan 2024 19:00": Investigate(when=datetime(2024, 1, 5, 19)),  # noqa: DTZ001
@@ -269,13 +285,13 @@ def show_scan(turn: dict[str, Any]) -> None:
         f"{len(events)} abnormal episodes between {turn['start']:%d %b %Y} and "
         f"{turn['end']:%d %b %Y}, most unusual first."
     )
-    st.dataframe(events_table(events), hide_index=True, use_container_width=True)
-    st.caption(
-        "Usual = median price for the same local hour on recent days of the same type "
-        "(weekday or weekend). "
-        "Rarity (z) = how many robust standard deviations the peak is from usual; "
-        "above 4 counts as abnormal."
+    st.dataframe(
+        events_table(events),
+        hide_index=True,
+        use_container_width=True,
+        column_config=table_help(),
     )
+    st.caption("Hover a column header for what it means. Rarity above 4 counts as abnormal.")
     st.selectbox(
         "Pick an episode to investigate",
         [episode_label(e) for e in events],
@@ -296,6 +312,17 @@ def episode_label(e: Event) -> str:
     )
 
 
+EVENT_COLUMNS = (
+    "When (Helsinki)",
+    "Lasted",
+    "What",
+    "Peak EUR/MWh",
+    "Usual EUR/MWh",
+    "Difference EUR/MWh",
+    "Rarity (z)",
+)
+
+
 def events_table(events: list[Event]) -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -310,6 +337,15 @@ def events_table(events: list[Event]) -> pd.DataFrame:
             "Rarity (z)": [format_number(e.z, "{:+.1f}") for e in events],
         }
     )
+
+
+def table_help() -> dict[str, Any]:
+    """Column tooltips for the scan table, one per glossary entry that names a column."""
+    return {
+        name: st.column_config.Column(help=text)
+        for name, text in GLOSSARY.items()
+        if name in EVENT_COLUMNS
+    }
 
 
 def investigation_title(inv: Investigation) -> str:
@@ -334,18 +370,19 @@ def show_investigation(inv: Investigation, narrative: Narrative, figures: dict) 
         "Normal for this hour",
         format_number(e.baseline_median, "{:,.0f} EUR/MWh"),
         format_number(e.deviation, "{:+,.0f}") if e.has_baseline else None,
+        help=GLOSSARY["Usual EUR/MWh"],
     )
-    m[2].metric("How unusual (z)", format_number(e.z, "{:+.1f}"))
+    m[2].metric("How unusual (z)", format_number(e.z, "{:+.1f}"), help=GLOSSARY["Rarity (z)"])
     m[3].metric("Lasted", f"{e.hours} h")
 
     st.write(narrative.summary)
     facts, hyps = st.columns(2)
     with facts:
-        st.markdown("**What the data shows**")
+        st.markdown("**Facts**", help=GLOSSARY["facts"])
         for item in narrative.facts:
             st.markdown(f"- {item}")
     with hyps:
-        st.markdown("**What it is consistent with** (not proven)")
+        st.markdown("**Hypotheses** (not proven)", help=GLOSSARY["hypotheses"])
         for item in narrative.hypotheses:
             st.markdown(f"- {item}")
         if narrative.insufficient:
@@ -355,7 +392,7 @@ def show_investigation(inv: Investigation, narrative: Narrative, figures: dict) 
 
     st.plotly_chart(figures["price"], use_container_width=True)
 
-    st.markdown("**Driver checks**")
+    st.markdown("**Driver checks**", help=GLOSSARY["drivers"])
     for verdict, heading, note in VERDICT_GROUPS:
         group = [r for r in inv.results if r.verdict is verdict]
         if not group:

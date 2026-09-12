@@ -121,7 +121,7 @@ def compare_to_baseline(
     detail = (
         f"{title}: {value:,.0f} {unit} during the event vs a same-hour baseline of "
         f"{baseline:,.0f} {unit} ({direction} normal by {abs(value - baseline):,.0f} {unit}"
-        f"{pct}, robust z = {z_signed:+.1f}, n = {int(valid['n'].min())} days)."
+        f"{pct}, robust z = {z_signed:+.1f}, baseline from {int(valid['n'].min())} prior days)."
     )
     return DriverResult(
         name=name,

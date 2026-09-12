@@ -11,9 +11,9 @@ from copilot.timeutil import datetime_index, to_utc, ts
 
 
 class EventKind(StrEnum):
-    SPIKE = "spike"
-    CRASH = "crash"
-    NEGATIVE = "negative"
+    SPIKE = "spike"  # way above normal eg 51 -> 100
+    CRASH = "crash"  # way below normal eg 51 -> 5, still positive
+    NEGATIVE = "negative"  # at or below zero, always abnormal
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

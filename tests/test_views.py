@@ -9,7 +9,17 @@ import streamlit as st
 from copilot.detect import Event, EventKind
 from copilot.report import format_number
 from copilot.timeutil import ts
-from views import MAX_TURNS, add_turn, episode_label, events_table, turn_by_id, turns
+from views import (
+    EVENT_COLUMNS,
+    GLOSSARY,
+    MAX_TURNS,
+    add_turn,
+    episode_label,
+    events_table,
+    table_help,
+    turn_by_id,
+    turns,
+)
 
 
 def _event(*, median: float, z: float, price: float = -12.0) -> Event:
@@ -91,3 +101,11 @@ def test_every_turn_gets_its_own_id() -> None:
     ids = [t["id"] for t in turns()]
     assert len(set(ids)) == 5
     assert all(turn_by_id(i) is not None for i in ids)
+
+
+def test_table_help_covers_only_real_columns() -> None:
+    cfg = table_help()
+    assert set(cfg) <= set(EVENT_COLUMNS)
+    assert "Rarity (z)" in cfg
+    assert set(events_table([WITH_HISTORY]).columns) == set(EVENT_COLUMNS)
+    assert all(GLOSSARY[k] for k in cfg)

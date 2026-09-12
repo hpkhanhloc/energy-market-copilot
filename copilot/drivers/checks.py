@@ -212,7 +212,7 @@ def residual_load(frame: MarketFrame, event: Event) -> DriverResult:
         event,
         column="residual_load",
         name="residual_load",
-        title="Residual load (load - wind - nuclear)",
+        title="Residual load (demand minus wind minus nuclear)",
         unit="MW",
         bullish_when="higher",
         hypothesis_up="An unusually large gap for flexible plants and imports to fill.",

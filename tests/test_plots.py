@@ -65,7 +65,15 @@ def test_driver_figures(investigation: Investigation) -> None:
     figures = all_figures(investigation)
     assert {"price", "neighbours", "wind_forecast", "residual_load", "imports"} <= set(figures)
     residual = figures["residual_load"]
-    assert [t.name for t in residual.data] == ["Residual load"]
+    assert [t.name for t in residual.data] == [
+        "Residual load same-hour baseline (median)",
+        "Residual load",
+    ]
+    load = figures["load"]
+    baseline, actual = load.data[0], load.data[1]
+    assert baseline.name == "Load same-hour baseline (median)"
+    assert actual.name == "Load"
+    assert len(baseline.x) == len(actual.x)
 
 
 def test_driver_figure_none_when_no_columns(investigation: Investigation) -> None:
@@ -87,3 +95,11 @@ def test_investigate_without_price_raises() -> None:
     )
     with pytest.raises(ValueError, match="price"):
         investigate_at(frame, ts("2024-01-01 01:00"))
+
+
+def test_every_figure_marks_the_peak_hour(investigation: Investigation) -> None:
+    peak = investigation.event.peak_time.tz_convert("Europe/Helsinki")
+    for fig in all_figures(investigation).values():
+        lines = [sh for sh in fig.layout.shapes if sh.type == "line"]
+        assert len(lines) == 1
+        assert pd.Timestamp(lines[0].x0) == peak

@@ -3,6 +3,7 @@
 import pandas as pd
 import plotly.graph_objects as go
 
+from copilot.baseline import baseline_frame
 from copilot.detect import Event
 from copilot.drivers.base import DriverResult
 from copilot.investigate import Investigation
@@ -40,8 +41,6 @@ LABELS: dict[str, str] = {
 
 def price_figure(inv: Investigation) -> go.Figure:
     """Finnish day-ahead price around the event with its same-hour baseline and the event shaded."""
-    from copilot.baseline import baseline_frame
-
     data = _clip(inv.frame.data, inv.event)
     stats = baseline_frame(inv.frame.data["price_fi"]).loc[data.index]
     fig = go.Figure()
@@ -95,7 +94,11 @@ def driver_figure(inv: Investigation, result: DriverResult) -> go.Figure | None:
         window_end=inv.window_end,
     )
     return _multi_line(
-        frame_inv, columns, title=f"{result.title} ({result.unit})", unit=result.unit
+        frame_inv,
+        columns,
+        title=f"{result.title} ({result.unit})",
+        unit=result.unit,
+        baseline_of=columns[0],
     )
 
 
@@ -111,13 +114,25 @@ def all_figures(inv: Investigation) -> dict[str, go.Figure]:
     return figures
 
 
-def _multi_line(inv: Investigation, columns: list[str], *, title: str, unit: str) -> go.Figure:
+def _multi_line(
+    inv: Investigation,
+    columns: list[str],
+    *,
+    title: str,
+    unit: str,
+    baseline_of: str | None = None,
+) -> go.Figure:
+    """One line per column; `baseline_of` also draws that column's same-hour baseline (median)."""
     data = _clip(inv.frame.data, inv.event)
     fig = go.Figure()
+    if baseline_of is not None:
+        median = baseline_frame(inv.frame.data[baseline_of]).loc[data.index, "median"]
+        label = f"{LABELS.get(baseline_of, baseline_of)} same-hour baseline (median)"
+        fig.add_trace(_line(data.index, median, label, BASELINE, width=1.5))
     for slot, column in enumerate(columns[: len(SERIES)]):
         fig.add_trace(_line(data.index, data[column], LABELS.get(column, column), SERIES[slot]))
     _shade_event(fig, inv.event)
-    _layout(fig, title=title, unit=unit, legend=len(columns) > 1)
+    _layout(fig, title=title, unit=unit, legend=len(columns) > 1 or baseline_of is not None)
     return fig
 
 
@@ -141,6 +156,7 @@ def _line(x: pd.Index, y: pd.Series, name: str, colour: str, *, width: float = 2
 
 
 def _shade_event(fig: go.Figure, event: Event) -> None:
+    """Shade the event hours and mark the peak hour, so every chart lines up with the price."""
     fig.add_vrect(
         x0=event.start.tz_convert(TZ),
         x1=(event.end + pd.Timedelta(hours=1)).tz_convert(TZ),
@@ -148,17 +164,35 @@ def _shade_event(fig: go.Figure, event: Event) -> None:
         line_width=0,
         layer="below",
     )
+    fig.add_vline(
+        x=event.peak_time.tz_convert(TZ),
+        line={"color": BASELINE, "width": 1, "dash": "dot"},
+        layer="below",
+    )
 
 
 def _layout(fig: go.Figure, *, title: str, unit: str, legend: bool = True) -> None:
     fig.update_layout(
         title=title,
-        margin={"l": 50, "r": 20, "t": 50, "b": 40},
-        height=320,
+        # Plot area is height - t - b = 210 px; legend/annotation y below are fractions of that.
+        margin={"l": 50, "r": 20, "t": 50, "b": 130},
+        height=390,
         hovermode="x unified",
         showlegend=legend,
         template="plotly_white",
-        legend={"orientation": "h", "y": -0.2},
+        legend={"orientation": "h", "x": 0, "y": -0.24, "xanchor": "left", "yanchor": "top"},
         yaxis={"title": unit, "gridcolor": "#ebebe8", "zeroline": True, "zerolinecolor": "#c9c8c2"},
-        xaxis={"showgrid": False, "title": f"Time ({TZ})"},
+        xaxis={"showgrid": False, "title": None},
+    )
+    # Time zone note in the bottom-right corner, under the legend, so the two never overlap.
+    fig.add_annotation(
+        text=f"Time ({TZ})",
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=-0.44,
+        xanchor="center",
+        yanchor="top",
+        showarrow=False,
+        font={"size": 14},  # plotly_white axis-title size
     )
