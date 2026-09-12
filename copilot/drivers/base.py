@@ -19,6 +19,9 @@ Z_NOT_ORDINARY = 1.0
 """The relative branch still needs this much z: a big-looking share of a wide baseline can be
 an entirely ordinary hour, and calling that "supports" states a hypothesis the data does not
 back. Wind 24% below normal at z = +0.3 is exactly that case."""
+MIN_COVERAGE = 0.5
+"""Share of the event hours a series must have data (and a baseline) for before it is judged.
+One hour out of twenty-one is not "during the event"; below this the verdict is insufficient."""
 
 
 class Verdict(StrEnum):
@@ -60,6 +63,19 @@ def event_window(frame: MarketFrame, event: Event) -> pd.DataFrame:
 def price_up(event: Event) -> bool:
     """True when the event is a high price; False for crashes and negative prices."""
     return event.kind is EventKind.SPIKE
+
+
+def pick_column(frame: MarketFrame, primary: str, backup: str) -> str:
+    """The twin column (ENTSO-E first, Fingrid as backup) with more hours of data.
+
+    `frame.has` is true for a single non-NaN value, so an ENTSO-E series with a gap over the
+    event would otherwise win against a complete Fingrid series measuring the same thing.
+    """
+    counts = {
+        c: int(frame.data[c].notna().sum()) if c in frame.data.columns else 0
+        for c in (primary, backup)
+    }
+    return backup if counts[backup] > counts[primary] else primary
 
 
 def compare_to_baseline(
@@ -107,6 +123,21 @@ def compare_to_baseline(
             detail=f"{title}: not enough history to build a baseline for the event hours.",
             columns=columns or (column,),
         )
+    covered = len(valid)
+    if covered < event.hours * MIN_COVERAGE:
+        return DriverResult(
+            name=name,
+            title=title,
+            hypothesis=hypothesis,
+            verdict=Verdict.INSUFFICIENT,
+            unit=unit,
+            detail=(
+                f"{title}: data and a baseline for only {covered} of {event.hours} event hours, "
+                "too few to judge."
+            ),
+            columns=columns or (column,),
+        )
+    partial = f" Based on {covered} of {event.hours} event hours." if covered < event.hours else ""
     value = float(valid["value"].mean())
     baseline = float(valid["median"].mean())
     z_signed = float(valid["z"].mean())
@@ -122,6 +153,7 @@ def compare_to_baseline(
         f"{title}: {value:,.0f} {unit} during the event vs a same-hour baseline of "
         f"{baseline:,.0f} {unit} ({direction} normal by {abs(value - baseline):,.0f} {unit}"
         f"{pct}, robust z = {z_signed:+.1f}, baseline from {int(valid['n'].min())} prior days)."
+        f"{partial}"
     )
     return DriverResult(
         name=name,

@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from copilot.baseline import baseline_frame
 from copilot.detect import Event
 from copilot.drivers.base import DriverResult
+from copilot.drivers.checks import with_derived
 from copilot.investigate import Investigation
 
 # Categorical palette in fixed slot order (validated colour-blind safe as adjacent pairs).
@@ -36,6 +37,7 @@ LABELS: dict[str, str] = {
     "import_ee": "From Estonia",
     "import_no4": "From NO4",
     "import_total": "Total net import",
+    "import_sweden": "From Sweden (SE1+SE3)",
     "residual_load": "Residual load",
     "imbalance_price": "Imbalance price",
 }
@@ -78,19 +80,16 @@ def neighbours_figure(inv: Investigation) -> go.Figure:
 
 def driver_figure(inv: Investigation, result: DriverResult) -> go.Figure | None:
     """The series behind one driver check, or None when nothing is plottable."""
-    data = inv.frame.data
-    if result.name == "residual_load" and "residual_load" not in data.columns:
-        wind = "wind" if inv.frame.has("wind") else "wind_rt"
-        nuclear = "nuclear" if inv.frame.has("nuclear") else "nuclear_rt"
-        if not inv.frame.has("load", wind, nuclear):
-            return None
-        data = data.assign(residual_load=data["load"] - data[wind] - data[nuclear])
+    # Derived series (SE1+SE3, residual load) are what the check judged, so the chart draws
+    # them and their baseline; otherwise the text and the chart would show different numbers.
+    frame = with_derived(inv.frame)
+    data = frame.data
     columns = [c for c in result.columns if c in data.columns and data[c].notna().any()]
     if not columns:
         return None
     frame_inv = Investigation(
         event=inv.event,
-        frame=type(inv.frame)(data=data, missing=inv.frame.missing),
+        frame=frame,
         results=inv.results,
         window_start=inv.window_start,
         window_end=inv.window_end,

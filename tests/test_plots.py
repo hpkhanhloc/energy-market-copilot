@@ -72,6 +72,9 @@ def test_driver_figures(investigation: Investigation) -> None:
         "Residual load same-hour baseline (median)",
         "Residual load",
     ]
+    imports = figures["imports"]
+    assert imports.data[0].name == "From Sweden (SE1+SE3) same-hour baseline (median)"
+    assert imports.data[1].name == "From Sweden (SE1+SE3)"
     wind = figures["wind_actual"]
     assert [t.name for t in wind.data] == [
         "Wind (ENTSO-E) same-hour baseline (median)",

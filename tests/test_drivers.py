@@ -5,13 +5,16 @@ import pytest
 from copilot.data.frame import MarketFrame
 from copilot.detect import Event, EventKind
 from copilot.drivers import Verdict, run_all
+from copilot.drivers.base import pick_column
 from copilot.drivers.checks import (
     imports,
     load,
     neighbour_prices,
     nuclear,
     residual_load,
+    wind_actual,
     wind_forecast,
+    with_derived,
 )
 from copilot.timeutil import ts
 
@@ -258,3 +261,63 @@ def test_a_big_relative_move_that_is_statistically_ordinary_does_not_support() -
     result = load(frame, _spike())
     assert abs(result.z or 0.0) < 1.0
     assert result.verdict is Verdict.DOES_NOT_SUPPORT
+
+
+def test_imports_needs_both_swedish_borders() -> None:
+    """SE1 alone is not the Swedish total: no verdict, but the borders we have are still listed."""
+    frame = _frame()
+    frame = MarketFrame(data=frame.data.drop(columns=["import_se3"]))
+    result = imports(frame, _spike())
+    assert result.verdict is Verdict.INSUFFICIENT
+    assert "no data for SE3" in result.detail
+    assert "Per border: SE1" in result.detail
+    assert "import_sweden" not in result.columns
+
+
+def test_imports_plots_the_judged_sum_first() -> None:
+    result = imports(_frame(), _spike())
+    assert result.columns[0] == "import_sweden"
+    assert "import_sweden" in with_derived(_frame()).data.columns
+
+
+def test_neighbours_single_neighbour_is_insufficient() -> None:
+    frame = _frame(price_ee=_with_event_values("price_ee", 1_000.0))
+    frame = MarketFrame(data=frame.data.drop(columns=["price_se1", "price_se3", "price_no4"]))
+    result = neighbour_prices(frame, _spike())
+    assert result.verdict is Verdict.INSUFFICIENT
+    assert "only EE" in result.detail
+    assert "regional move" not in result.detail.split("tell")[0]
+
+
+def test_too_few_event_hours_with_data_is_insufficient() -> None:
+    """One hour out of a long event is not 'during the event'."""
+    frame = _frame()
+    event = _spike(hours=12)
+    data = frame.data.copy()
+    covered = data.index[(data.index >= event.start) & (data.index <= event.end)]
+    data.loc[covered[1:], "wind"] = np.nan
+    result = wind_actual(MarketFrame(data=data), event)
+    assert result.verdict is Verdict.INSUFFICIENT
+    assert "only 1 of 12 event hours" in result.detail
+
+
+def test_partial_coverage_is_stated_in_the_detail() -> None:
+    frame = _frame()
+    event = _spike(hours=4)
+    data = frame.data.copy()
+    covered = data.index[(data.index >= event.start) & (data.index <= event.end)]
+    data.loc[covered[:1], "load"] = np.nan
+    result = load(MarketFrame(data=data), event)
+    assert result.verdict is not Verdict.INSUFFICIENT
+    assert result.detail.endswith("Based on 3 of 4 event hours.")
+
+
+def test_pick_column_prefers_the_twin_with_more_data() -> None:
+    frame = _frame(wind_rt=_flat(2_000, 100, 7))
+    data = frame.data.copy()
+    data.loc[data.index[48:], "wind"] = np.nan  # ENTSO-E wind stops after two days
+    sparse = MarketFrame(data=data)
+    assert pick_column(sparse, "wind", "wind_rt") == "wind_rt"
+    assert pick_column(frame, "wind", "wind_rt") == "wind"
+    assert pick_column(_frame(), "wind", "wind_rt") == "wind"  # no backup column at all
+    assert wind_actual(sparse, _spike()).verdict is not Verdict.INSUFFICIENT

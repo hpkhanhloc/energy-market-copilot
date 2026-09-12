@@ -14,6 +14,7 @@ from copilot.drivers.base import (
     Verdict,
     compare_to_baseline,
     event_window,
+    pick_column,
     price_up,
 )
 
@@ -23,6 +24,35 @@ NEIGHBOUR_PRICES: dict[str, str] = {
     "price_ee": "EE",
     "price_no4": "NO4",
 }
+BORDERS: dict[str, str] = {
+    "import_se1": "SE1",
+    "import_se3": "SE3",
+    "import_ee": "EE",
+    "import_no4": "NO4",
+}
+SWEDISH_BORDERS = ("import_se1", "import_se3")
+MIN_NEIGHBOURS = 2
+"""One neighbour cannot tell a regional move from a local one."""
+
+
+def with_derived(frame: MarketFrame) -> MarketFrame:
+    """The frame plus the derived series the checks judge and the charts must therefore show.
+
+    `import_sweden` is SE1+SE3 (NaN when either border is missing for the hour); `residual_load`
+    is load minus wind minus nuclear, each from the twin column with more data.
+    """
+    data = frame.data
+    extra: dict[str, pd.Series] = {}
+    if "import_sweden" not in data.columns and frame.has(*SWEDISH_BORDERS):
+        extra["import_sweden"] = data[list(SWEDISH_BORDERS)].sum(axis=1, min_count=2)
+    if "residual_load" not in data.columns:
+        wind = pick_column(frame, "wind", "wind_rt")
+        nuclear = pick_column(frame, "nuclear", "nuclear_rt")
+        if frame.has("load", wind, nuclear):
+            extra["residual_load"] = data["load"] - data[wind] - data[nuclear]
+    if not extra:
+        return frame
+    return MarketFrame(data=data.assign(**extra), missing=frame.missing)
 
 
 def wind_forecast(frame: MarketFrame, event: Event) -> DriverResult:
@@ -42,7 +72,7 @@ def wind_forecast(frame: MarketFrame, event: Event) -> DriverResult:
 
 
 def wind_actual(frame: MarketFrame, event: Event) -> DriverResult:
-    column = "wind" if frame.has("wind") else "wind_rt"
+    column = pick_column(frame, "wind", "wind_rt")
     return compare_to_baseline(
         frame,
         event,
@@ -60,7 +90,7 @@ def wind_actual(frame: MarketFrame, event: Event) -> DriverResult:
 
 
 def nuclear(frame: MarketFrame, event: Event) -> DriverResult:
-    column = "nuclear" if frame.has("nuclear") else "nuclear_rt"
+    column = pick_column(frame, "nuclear", "nuclear_rt")
     return compare_to_baseline(
         frame,
         event,
@@ -94,22 +124,31 @@ def imports(frame: MarketFrame, event: Event) -> DriverResult:
     """Swedish borders carry most Finnish imports, so they are judged; every border is reported.
 
     Estonia often flips from export to import in tight hours, which can make the total look
-    fine while the Nordic supply actually fell. Judging SE1+SE3 avoids that blind spot.
+    fine while the Nordic supply actually fell. Judging SE1+SE3 avoids that blind spot. Both
+    Swedish borders must be loaded: a single border is not the Swedish total.
     """
-    swedish = [c for c in ("import_se1", "import_se3") if frame.has(c)]
-    if not swedish:
+    hypothesis = (
+        "Less import from Sweden (capacity limits, or Sweden short too)."
+        if price_up(event)
+        else "More import from Sweden than usual (cheap Nordic power flowing in)."
+    )
+    derived = with_derived(frame)
+    columns = tuple(c for c in ("import_sweden", *BORDERS) if derived.has(c))
+    if not frame.has(*SWEDISH_BORDERS):
+        missing = [BORDERS[c] for c in SWEDISH_BORDERS if not frame.has(c)]
+        extra = _border_breakdown(frame, event)
         return DriverResult(
             name="imports",
-            title="Imports from Sweden",
+            title="Imports from Sweden (SE1+SE3)",
             unit="MW",
             verdict=Verdict.INSUFFICIENT,
-            hypothesis="Less import from Sweden (capacity limits, or Sweden short too).",
-            detail="Imports: no cross-border data.",
-            columns=(),
+            hypothesis=hypothesis,
+            detail=f"Imports from Sweden (SE1+SE3): no data for {' and '.join(missing)}, so the "
+            "Swedish total cannot be judged." + (f" Per border: {extra}." if extra else ""),
+            columns=columns,
         )
-    data = frame.data.assign(import_sweden=frame.data[swedish].sum(axis=1, min_count=1))
     result = compare_to_baseline(
-        MarketFrame(data=data, missing=frame.missing),
+        derived,
         event,
         column="import_sweden",
         name="imports",
@@ -118,9 +157,7 @@ def imports(frame: MarketFrame, event: Event) -> DriverResult:
         bullish_when="lower",
         hypothesis_up="Less import from Sweden (capacity limits, or Sweden short too).",
         hypothesis_down="More import from Sweden than usual (cheap Nordic power flowing in).",
-        columns=tuple(
-            c for c in ("import_se1", "import_se3", "import_ee", "import_no4") if frame.has(c)
-        ),
+        columns=columns,
     )
     if result.verdict is Verdict.INSUFFICIENT:
         return result
@@ -150,15 +187,21 @@ def neighbour_prices(frame: MarketFrame, event: Event) -> DriverResult:
         z = float(stats["z"].mean())
         zs.append(z)
         rows.append(f"{label} {stats['value'].mean():,.0f} EUR/MWh (z {z:+.1f})")
-    if not zs:
+    if len(zs) < MIN_NEIGHBOURS:
+        detail = (
+            "Neighbouring prices: no data."
+            if not zs
+            else f"Neighbouring prices: only {rows[0]} loaded; at least {MIN_NEIGHBOURS} "
+            "neighbours are needed to tell a regional move from a Finnish one."
+        )
         return DriverResult(
             name="neighbours",
             title="Neighbouring prices",
             unit="EUR/MWh",
             verdict=Verdict.INSUFFICIENT,
             hypothesis="A regional move across the Nordic/Baltic market rather than Finland alone.",
-            detail="Neighbouring prices: no data.",
-            columns=tuple(NEIGHBOUR_PRICES),
+            detail=detail,
+            columns=tuple(c for c in NEIGHBOUR_PRICES if frame.has(c)),
         )
     regional = [z for z in zs if (z >= Z_SUPPORT if price_up(event) else z <= -Z_SUPPORT)]
     # Strict majority: more than half, so 1 of 2 and 1 of 3 are not enough. `len(zs) // 2`
@@ -193,12 +236,13 @@ def neighbour_prices(frame: MarketFrame, event: Event) -> DriverResult:
 
 def residual_load(frame: MarketFrame, event: Event) -> DriverResult:
     """Load minus wind minus nuclear: what the expensive, flexible plants must cover."""
-    needed = (
-        "load",
-        "wind" if frame.has("wind") else "wind_rt",
-        "nuclear" if frame.has("nuclear") else "nuclear_rt",
-    )
-    if not frame.has(*needed):
+    derived = with_derived(frame)
+    if "residual_load" not in derived.data.columns:
+        needed = (
+            "load",
+            pick_column(frame, "wind", "wind_rt"),
+            pick_column(frame, "nuclear", "nuclear_rt"),
+        )
         return DriverResult(
             name="residual_load",
             title="Residual load",
@@ -208,11 +252,8 @@ def residual_load(frame: MarketFrame, event: Event) -> DriverResult:
             detail="Residual load: needs load, wind and nuclear.",
             columns=needed,
         )
-    data = frame.data
-    if "residual_load" not in data.columns:
-        data = data.assign(residual_load=data[needed[0]] - data[needed[1]] - data[needed[2]])
     return compare_to_baseline(
-        MarketFrame(data=data, missing=frame.missing),
+        derived,
         event,
         column="residual_load",
         name="residual_load",
@@ -248,12 +289,7 @@ def run_all(
 def _border_breakdown(frame: MarketFrame, event: Event) -> str:
     parts: list[str] = []
     window = event_window(frame, event)
-    for column, label in (
-        ("import_se1", "SE1"),
-        ("import_se3", "SE3"),
-        ("import_ee", "EE"),
-        ("import_no4", "NO4"),
-    ):
+    for column, label in BORDERS.items():
         if frame.has(column):
             stats = baseline_frame(frame.data[column]).loc[event.start : event.end]
             base = stats["median"].mean()
