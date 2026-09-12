@@ -37,6 +37,7 @@ def wind_forecast(frame: MarketFrame, event: Event) -> DriverResult:
         bullish_when="lower",
         hypothesis_up="Low forecast wind for these hours (less cheap supply in the day-ahead auction).",
         hypothesis_down="High forecast wind for these hours (cheap supply flooding the day-ahead auction).",
+        columns=("wind_fc", "wind_fc_fingrid"),
     )
 
 
@@ -52,7 +53,9 @@ def wind_actual(frame: MarketFrame, event: Event) -> DriverResult:
         bullish_when="lower",
         hypothesis_up="Actual wind was low (mainly an imbalance-market signal; cross-checks the forecast).",
         hypothesis_down="Actual wind was high (mainly an imbalance-market signal; cross-checks the forecast).",
-        columns=(column, "wind_fc"),
+        # Both sources of actual wind (Fingrid hidden until clicked) plus the forecast it is
+        # cross-checked against. The Fingrid forecast lives on the forecast chart only.
+        columns=("wind", "wind_rt", "wind_fc"),
     )
 
 
@@ -68,6 +71,7 @@ def nuclear(frame: MarketFrame, event: Event) -> DriverResult:
         bullish_when="lower",
         hypothesis_up="A nuclear unit out or ramped down (less cheap baseload available).",
         hypothesis_down="More nuclear than usual (extra cheap baseload).",
+        columns=("nuclear", "nuclear_rt"),
     )
 
 
@@ -82,7 +86,7 @@ def load(frame: MarketFrame, event: Event) -> DriverResult:
         bullish_when="higher",
         hypothesis_up="Unusually high demand, e.g. a cold snap (more expensive plants needed).",
         hypothesis_down="Unusually low demand, e.g. a mild weekend or holiday (cheap plants suffice).",
-        columns=("load", "load_fc"),
+        columns=("load", "consumption_rt", "load_fc"),
     )
 
 

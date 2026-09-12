@@ -22,12 +22,14 @@ LABELS: dict[str, str] = {
     "price_se3": "SE3",
     "price_ee": "Estonia",
     "price_no4": "NO4",
-    "load": "Load",
-    "load_fc": "Load forecast",
-    "wind": "Wind",
+    "load": "Consumption (ENTSO-E)",
+    "load_fc": "Consumption forecast (ENTSO-E)",
+    "consumption_rt": "Consumption (Fingrid real-time)",
+    "wind": "Wind (ENTSO-E)",
     "wind_rt": "Wind (Fingrid real-time)",
-    "wind_fc": "Wind forecast",
-    "nuclear": "Nuclear",
+    "wind_fc": "Wind forecast (ENTSO-E)",
+    "wind_fc_fingrid": "Wind forecast (Fingrid)",
+    "nuclear": "Nuclear (ENTSO-E)",
     "nuclear_rt": "Nuclear (Fingrid)",
     "import_se1": "From SE1",
     "import_se3": "From SE3",
@@ -130,10 +132,27 @@ def _multi_line(
         label = f"{LABELS.get(baseline_of, baseline_of)} same-hour baseline (median)"
         fig.add_trace(_line(data.index, median, label, BASELINE, width=1.5))
     for slot, column in enumerate(columns[: len(SERIES)]):
-        fig.add_trace(_line(data.index, data[column], LABELS.get(column, column), SERIES[slot]))
+        trace = _line(data.index, data[column], LABELS.get(column, column), SERIES[slot])
+        if _is_backup(column, columns):
+            trace.visible = "legendonly"  # Fingrid copy hidden until clicked when ENTSO-E is there
+        fig.add_trace(trace)
     _shade_event(fig, inv.event)
     _layout(fig, title=title, unit=unit, legend=len(columns) > 1 or baseline_of is not None)
     return fig
+
+
+FINGRID_TWIN = {
+    "wind_rt": "wind",
+    "wind_fc_fingrid": "wind_fc",
+    "nuclear_rt": "nuclear",
+    "consumption_rt": "load",
+}
+"""Fingrid real-time column -> the ENTSO-E column that measures the same thing."""
+
+
+def _is_backup(column: str, columns: list[str]) -> bool:
+    """True for a Fingrid column whose ENTSO-E twin is also plotted."""
+    return FINGRID_TWIN.get(column) in columns
 
 
 def _clip(data: pd.DataFrame, event: Event) -> pd.DataFrame:

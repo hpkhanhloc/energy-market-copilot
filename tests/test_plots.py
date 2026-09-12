@@ -19,8 +19,11 @@ def investigation() -> Investigation:
             "price_se3": 45 + rng.normal(0, 2, len(idx)),
             "load": 10_000 + rng.normal(0, 100, len(idx)),
             "load_fc": 10_000 + rng.normal(0, 100, len(idx)),
+            "consumption_rt": 10_000 + rng.normal(0, 100, len(idx)),
             "wind": 2_000 + rng.normal(0, 100, len(idx)),
+            "wind_rt": 2_000 + rng.normal(0, 100, len(idx)),
             "wind_fc": 2_000 + rng.normal(0, 100, len(idx)),
+            "wind_fc_fingrid": 2_000 + rng.normal(0, 100, len(idx)),
             "nuclear": 4_300 + rng.normal(0, 5, len(idx)),
             "import_se1": 1_000 + rng.normal(0, 50, len(idx)),
             "import_se3": 1_100 + rng.normal(0, 50, len(idx)),
@@ -69,10 +72,25 @@ def test_driver_figures(investigation: Investigation) -> None:
         "Residual load same-hour baseline (median)",
         "Residual load",
     ]
+    wind = figures["wind_actual"]
+    assert [t.name for t in wind.data] == [
+        "Wind (ENTSO-E) same-hour baseline (median)",
+        "Wind (ENTSO-E)",
+        "Wind (Fingrid real-time)",
+        "Wind forecast (ENTSO-E)",
+    ]
+    assert [t.name for t in wind.data if t.visible == "legendonly"] == ["Wind (Fingrid real-time)"]
+    forecast = figures["wind_forecast"]
+    assert [t.name for t in forecast.data if t.visible == "legendonly"] == [
+        "Wind forecast (Fingrid)"
+    ]
     load = figures["load"]
     baseline, actual = load.data[0], load.data[1]
-    assert baseline.name == "Load same-hour baseline (median)"
-    assert actual.name == "Load"
+    assert baseline.name == "Consumption (ENTSO-E) same-hour baseline (median)"
+    assert actual.name == "Consumption (ENTSO-E)"
+    assert [t.name for t in load.data if t.visible == "legendonly"] == [
+        "Consumption (Fingrid real-time)"
+    ]
     assert len(baseline.x) == len(actual.x)
 
 
