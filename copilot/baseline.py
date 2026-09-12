@@ -15,6 +15,7 @@ Two things matter for correctness:
 """
 
 import warnings
+from collections import OrderedDict
 from dataclasses import dataclass
 
 import numpy as np
@@ -51,6 +52,13 @@ class BaselineConfig:
         return max(MIN_WEEKEND_SAMPLES, scaled)
 
 
+MEMO_SIZE = 64
+_memo: OrderedDict[tuple[int, int, BaselineConfig], pd.DataFrame] = OrderedDict()
+"""Recent results keyed on a hash of the series. One investigation asks for the same column's
+baseline from detection, its driver check, the border breakdown and the chart; the pure
+computation below is the slowest thing in it, so each distinct series is done once."""
+
+
 def baseline_frame(series: pd.Series, config: BaselineConfig | None = None) -> pd.DataFrame:
     """Return columns value, median, mad, sigma, z, n for every hour of `series`.
 
@@ -59,6 +67,19 @@ def baseline_frame(series: pd.Series, config: BaselineConfig | None = None) -> p
     Works on any hourly series with a tz-aware index (price, wind, load...).
     """
     config = config or BaselineConfig()
+    key = (int(pd.util.hash_pandas_object(series, index=True).sum()), len(series), config)
+    hit = _memo.get(key)
+    if hit is not None:
+        _memo.move_to_end(key)
+        return hit.copy()
+    out = _compute(series, config)
+    _memo[key] = out
+    while len(_memo) > MEMO_SIZE:
+        _memo.popitem(last=False)
+    return out.copy()
+
+
+def _compute(series: pd.Series, config: BaselineConfig) -> pd.DataFrame:
     index = datetime_index(series)
     if index.tz is None:
         raise ValueError("series must be tz-aware")

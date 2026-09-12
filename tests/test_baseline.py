@@ -126,3 +126,29 @@ def test_rolling_mad_matches_the_plain_python_version() -> None:
 
     expected = wide.rolling(8, min_periods=1).apply(naive, raw=True)
     pd.testing.assert_frame_equal(_rolling_mad(wide, 8), expected, check_dtype=False)
+
+
+def test_baseline_frame_is_memoised_per_series(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same series, same config: computed once. A changed value is a different series."""
+    import copilot.baseline as baseline
+
+    calls: list[int] = []
+    real = baseline._compute
+
+    def counting(series: pd.Series, config: baseline.BaselineConfig) -> pd.DataFrame:
+        calls.append(1)
+        return real(series, config)
+
+    monkeypatch.setattr(baseline, "_compute", counting)
+    idx = pd.date_range(ts("2024-01-01"), periods=24 * 40, freq="1h", tz="UTC")
+    series = pd.Series(np.arange(len(idx), dtype="float64"), index=idx)
+    first = baseline_frame(series)
+    second = baseline_frame(series)
+    pd.testing.assert_frame_equal(first, second)
+    assert len(calls) == 1
+    second.loc[:, "z"] = 0.0  # a caller mutating its copy must not poison the memo
+    assert baseline_frame(series)["z"].equals(first["z"])
+    changed = series.copy()
+    changed.iloc[-1] += 1.0
+    baseline_frame(changed)
+    assert len(calls) == 2
