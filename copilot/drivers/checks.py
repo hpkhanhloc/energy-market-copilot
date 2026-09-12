@@ -5,6 +5,7 @@ from dataclasses import replace
 import pandas as pd
 
 from copilot.baseline import baseline_frame
+from copilot.data.entsoe import NEIGHBOURS
 from copilot.data.frame import MarketFrame
 from copilot.detect import Event
 from copilot.drivers.base import (
@@ -18,18 +19,8 @@ from copilot.drivers.base import (
     price_up,
 )
 
-NEIGHBOUR_PRICES: dict[str, str] = {
-    "price_se1": "SE1",
-    "price_se3": "SE3",
-    "price_ee": "EE",
-    "price_no4": "NO4",
-}
-BORDERS: dict[str, str] = {
-    "import_se1": "SE1",
-    "import_se3": "SE3",
-    "import_ee": "EE",
-    "import_no4": "NO4",
-}
+NEIGHBOUR_PRICES: dict[str, str] = {f"price_{s}": s.upper() for s in NEIGHBOURS.values()}
+BORDERS: dict[str, str] = {f"import_{s}": s.upper() for s in NEIGHBOURS.values()}
 SWEDISH_BORDERS = ("import_se1", "import_se3")
 MIN_NEIGHBOURS = 2
 """One neighbour cannot tell a regional move from a local one."""
@@ -162,15 +153,11 @@ def imports(frame: MarketFrame, event: Event) -> DriverResult:
     if result.verdict is Verdict.INSUFFICIENT:
         return result
     extra = _border_breakdown(frame, event)
-    if frame.has("import_total"):
-        window = event_window(frame, event)
-        base = (
-            baseline_frame(frame.data["import_total"]).loc[event.start : event.end]["median"].mean()
-        )
-        normal = f" (normal {base:,.0f})" if pd.notna(base) else ""  # as in _border_breakdown
-        total = f" Total net import {window['import_total'].mean():,.0f} MW{normal}."
-    else:
-        total = ""
+    total = (
+        f" Total net import {_mean_vs_normal(frame, event, 'import_total')}."
+        if frame.has("import_total")
+        else ""
+    )
     return replace(result, detail=f"{result.detail} Per border: {extra}.{total}")
 
 
@@ -287,12 +274,16 @@ def run_all(
 
 
 def _border_breakdown(frame: MarketFrame, event: Event) -> str:
-    parts: list[str] = []
-    window = event_window(frame, event)
-    for column, label in BORDERS.items():
-        if frame.has(column):
-            stats = baseline_frame(frame.data[column]).loc[event.start : event.end]
-            base = stats["median"].mean()
-            base_text = f" (normal {base:,.0f})" if pd.notna(base) else ""
-            parts.append(f"{label} {window[column].mean():,.0f} MW{base_text}")
-    return ", ".join(parts)
+    return ", ".join(
+        f"{label} {_mean_vs_normal(frame, event, column)}"
+        for column, label in BORDERS.items()
+        if frame.has(column)
+    )
+
+
+def _mean_vs_normal(frame: MarketFrame, event: Event, column: str) -> str:
+    """'1,234 MW (normal 1,500)' for the event hours; the normal part is left out with no baseline."""
+    mean = event_window(frame, event)[column].mean()
+    base = baseline_frame(frame.data[column]).loc[event.start : event.end]["median"].mean()
+    normal = f" (normal {base:,.0f})" if pd.notna(base) else ""
+    return f"{mean:,.0f} MW{normal}"

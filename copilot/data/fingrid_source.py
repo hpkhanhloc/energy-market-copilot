@@ -16,13 +16,11 @@ SERIES: dict[str, Dataset] = {
     "wind_rt": Dataset.WIND,
     "wind_fc_fingrid": Dataset.WIND_FORECAST,
     "nuclear_rt": Dataset.NUCLEAR,
-    "hydro_rt": Dataset.HYDRO,
-    "production_rt": Dataset.PRODUCTION,
     "consumption_rt": Dataset.CONSUMPTION,
-    "consumption_fc": Dataset.CONSUMPTION_FORECAST,
-    "imbalance_price": Dataset.IMBALANCE_PRICE,
 }
-"""Column name -> Fingrid dataset. `_rt` = real-time measurement averaged to the hour."""
+"""Column name -> Fingrid dataset, only the series a driver check or a chart reads. Each costs a
+throttled request per month (1 req / 2 s). `_rt` = real-time measurement averaged to the hour.
+The imbalance price (Dataset.IMBALANCE_PRICE) joins here once a driver uses it."""
 
 
 class HourlyFetcher(Protocol):

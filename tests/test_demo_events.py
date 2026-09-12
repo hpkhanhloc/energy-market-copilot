@@ -88,3 +88,18 @@ def test_scan_since_keeps_an_episode_that_started_before_the_range(frame: Market
     assert "01-05 06:00" not in {
         e.start.tz_convert("Europe/Helsinki").strftime("%m-%d %H:%M") for e in before
     }
+
+
+def test_window_for_and_scan_window_cover_history_and_the_last_day() -> None:
+    from datetime import date
+
+    from copilot.investigate import AFTER_DAYS, HISTORY_DAYS, scan_window, window_for
+    from copilot.timeutil import ts
+
+    start, end = window_for(helsinki("2024-01-05 19:00"))
+    assert start == ts("2024-01-05") - pd.Timedelta(days=HISTORY_DAYS)
+    assert end == ts("2024-01-05") + pd.Timedelta(days=AFTER_DAYS)
+
+    start, end = scan_window(date(2023, 12, 8), date(2024, 1, 8))
+    assert start == helsinki("2023-12-08") - pd.Timedelta(days=HISTORY_DAYS)
+    assert end == helsinki("2024-01-09")  # half-open: the whole of 8 Jan is inside

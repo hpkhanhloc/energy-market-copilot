@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pandas as pd
 
+from copilot.config import TZ
 from copilot.data.cache import cache_key, month_chunks
 from copilot.detect import DetectConfig, Event, EventKind, find_events, score_prices
 from copilot.timeutil import datetime_index, to_utc
 
 log = logging.getLogger(__name__)
 
-TZ = "Europe/Helsinki"
 PRICE_PREFIX = "entsoe_price_FI"
 PRICE_COLUMN = "price_fi"
 

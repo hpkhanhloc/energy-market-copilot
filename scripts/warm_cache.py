@@ -8,8 +8,7 @@ import sys
 import time
 
 from copilot.config import load_settings
-from copilot.data.frame import build_market_frame
-from copilot.data.sources import entsoe_source, fingrid_source
+from copilot.investigate import load_window
 from copilot.timeutil import helsinki
 
 
@@ -17,12 +16,7 @@ def main(start: str, end: str) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     settings = load_settings()
     t0 = time.time()
-    frame = build_market_frame(
-        helsinki(start),
-        helsinki(end),
-        entsoe=entsoe_source(settings),
-        fingrid=fingrid_source(settings),
-    )
+    frame = load_window(settings, helsinki(start), helsinki(end))  # exactly what the app fetches
     print(
         f"done in {time.time() - t0:.0f}s: {len(frame.data)} hours, {len(frame.data.columns)} columns"
     )

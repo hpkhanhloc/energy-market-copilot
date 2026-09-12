@@ -11,12 +11,15 @@ from copilot.report import (
     Narrative,
     banned_phrases,
     fallback_narrative,
+    narrative_texts,
     render_facts,
     unknown_numbers,
 )
-from copilot.trace import Guard, LlmCall, now_iso, record, timed
+from copilot.trace import Guard, record_call, timed
 
 log = logging.getLogger(__name__)
+
+KIND = "narrative"
 
 INSTRUCTIONS = """You write short investigation notes for an energy market analyst.
 You are given the FACTS section produced by deterministic code about one abnormal hour
@@ -70,7 +73,7 @@ def narrate(
             type(result).__name__,
             result,
         )
-        _trace(model, prompt, repr(result), latency, guard="exception")
+        record_call(KIND, model, prompt, repr(result), latency, guard="exception")
         return fallback_narrative(inv)
     draft: Draft = result.output
     output = draft.model_dump_json()
@@ -85,12 +88,12 @@ def narrate(
         log.warning(
             "LLM narrative used numbers not in the facts %s; using deterministic narrative", bad
         )
-        _trace(model, prompt, output, latency, guard="unknown_numbers")
+        record_call(KIND, model, prompt, output, latency, guard="unknown_numbers")
         return fallback_narrative(inv)
-    causal = [p for text in _narrative_texts(narrative) for p in banned_phrases(text)]
+    causal = [p for text in narrative_texts(narrative) for p in banned_phrases(text)]
     if causal:
         log.warning("LLM narrative used causal wording %s; using deterministic narrative", causal)
-        _trace(model, prompt, output, latency, guard="banned_phrase")
+        record_call(KIND, model, prompt, output, latency, guard="banned_phrase")
         return fallback_narrative(inv)
     guard: Guard | None = None
     if narrative.hypotheses and not any(r.verdict is Verdict.SUPPORTS for r in inv.results):
@@ -99,33 +102,5 @@ def narrate(
         log.info("dropping %d hypotheses with no supporting driver", len(narrative.hypotheses))
         narrative = narrative.model_copy(update={"hypotheses": []})
         guard = "invented_hypotheses"
-    _trace(model, prompt, output, latency, guard=guard, fallback=False)
+    record_call(KIND, model, prompt, output, latency, guard=guard, fallback=False)
     return narrative
-
-
-def _narrative_texts(n: Narrative) -> list[str]:
-    return [n.summary, *n.facts, *n.hypotheses, *n.insufficient]
-
-
-def _trace(
-    model: str,
-    prompt: str,
-    output: str,
-    latency: int,
-    *,
-    guard: Guard | None,
-    fallback: bool = True,
-) -> None:
-    record(
-        LlmCall(
-            kind="narrative",
-            model=model,
-            input=prompt,
-            output=output,
-            ok=guard is None,
-            guard=guard,
-            fallback=fallback,
-            latency_ms=latency,
-            ts=now_iso(),
-        )
-    )

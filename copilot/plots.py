@@ -4,6 +4,8 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from copilot.baseline import baseline_frame
+from copilot.config import TZ
+from copilot.data.entsoe import NEIGHBOURS
 from copilot.detect import Event
 from copilot.drivers.base import DriverResult
 from copilot.drivers.checks import with_derived
@@ -13,7 +15,6 @@ from copilot.investigate import Investigation
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 BASELINE = "#8a8984"
 EVENT_FILL = "rgba(235, 104, 52, 0.12)"
-TZ = "Europe/Helsinki"
 HOURS_BEFORE = 72
 HOURS_AFTER = 24
 
@@ -39,7 +40,6 @@ LABELS: dict[str, str] = {
     "import_total": "Total net import",
     "import_sweden": "From Sweden (SE1+SE3)",
     "residual_load": "Residual load",
-    "imbalance_price": "Imbalance price",
 }
 
 
@@ -69,12 +69,14 @@ def price_figure(inv: Investigation) -> go.Figure:
 
 def neighbours_figure(inv: Investigation) -> go.Figure:
     columns = [
-        c
-        for c in ("price_fi", "price_se1", "price_se3", "price_ee", "price_no4")
-        if inv.frame.has(c)
+        c for c in ("price_fi", *(f"price_{s}" for s in NEIGHBOURS.values())) if inv.frame.has(c)
     ]
     return _multi_line(
-        inv, columns, title="Day-ahead prices, Finland and neighbours (EUR/MWh)", unit="EUR/MWh"
+        inv.frame.data,
+        inv.event,
+        columns,
+        title="Day-ahead prices, Finland and neighbours (EUR/MWh)",
+        unit="EUR/MWh",
     )
 
 
@@ -82,20 +84,13 @@ def driver_figure(inv: Investigation, result: DriverResult) -> go.Figure | None:
     """The series behind one driver check, or None when nothing is plottable."""
     # Derived series (SE1+SE3, residual load) are what the check judged, so the chart draws
     # them and their baseline; otherwise the text and the chart would show different numbers.
-    frame = with_derived(inv.frame)
-    data = frame.data
+    data = with_derived(inv.frame).data
     columns = [c for c in result.columns if c in data.columns and data[c].notna().any()]
     if not columns:
         return None
-    frame_inv = Investigation(
-        event=inv.event,
-        frame=frame,
-        results=inv.results,
-        window_start=inv.window_start,
-        window_end=inv.window_end,
-    )
     return _multi_line(
-        frame_inv,
+        data,
+        inv.event,
         columns,
         title=f"{result.title} ({result.unit})",
         unit=result.unit,
@@ -116,7 +111,8 @@ def all_figures(inv: Investigation) -> dict[str, go.Figure]:
 
 
 def _multi_line(
-    inv: Investigation,
+    full: pd.DataFrame,
+    event: Event,
     columns: list[str],
     *,
     title: str,
@@ -124,10 +120,10 @@ def _multi_line(
     baseline_of: str | None = None,
 ) -> go.Figure:
     """One line per column; `baseline_of` also draws that column's same-hour baseline (median)."""
-    data = _clip(inv.frame.data, inv.event)
+    data = _clip(full, event)
     fig = go.Figure()
     if baseline_of is not None:
-        median = baseline_frame(inv.frame.data[baseline_of]).loc[data.index, "median"]
+        median = baseline_frame(full[baseline_of]).loc[data.index, "median"]
         label = f"{LABELS.get(baseline_of, baseline_of)} same-hour baseline (median)"
         fig.add_trace(_line(data.index, median, label, BASELINE, width=1.5))
     for slot, column in enumerate(columns[: len(SERIES)]):
@@ -135,7 +131,7 @@ def _multi_line(
         if _is_backup(column, columns):
             trace.visible = "legendonly"  # Fingrid copy hidden until clicked when ENTSO-E is there
         fig.add_trace(trace)
-    _shade_event(fig, inv.event)
+    _shade_event(fig, event)
     _layout(fig, title=title, unit=unit, legend=len(columns) > 1 or baseline_of is not None)
     return fig
 

@@ -37,6 +37,35 @@ def trace_path() -> Path:
     return Path(override) if override else ROOT / "data" / "logs" / "llm.jsonl"
 
 
+def record_call(
+    kind: CallKind,
+    model: str,
+    prompt: str,
+    output: str,
+    latency_ms: int,
+    *,
+    guard: Guard | None,
+    fallback: bool | None = None,
+) -> None:
+    """Record one LLM call. `ok` is derived from `guard`; `fallback` defaults to `guard is set`.
+
+    Narrative passes `fallback=False` for a guard that trims the model's output but keeps it.
+    """
+    record(
+        LlmCall(
+            kind=kind,
+            model=model,
+            input=prompt,
+            output=output,
+            ok=guard is None,
+            guard=guard,
+            fallback=guard is not None if fallback is None else fallback,
+            latency_ms=latency_ms,
+            ts=now_iso(),
+        )
+    )
+
+
 def record(call: LlmCall, path: Path | None = None) -> None:
     """Append one line. Never raises: a broken log must not break a report."""
     target = path or trace_path()

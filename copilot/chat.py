@@ -9,9 +9,11 @@ from pydantic_ai import Agent
 
 from copilot.investigate import Investigation
 from copilot.report import banned_phrases, render_facts, unknown_numbers_in_text
-from copilot.trace import Guard, LlmCall, now_iso, record, timed
+from copilot.trace import record_call, timed
 
 log = logging.getLogger(__name__)
+
+KIND = "answer"
 
 HISTORY_LINES = 8
 FALLBACK_ANSWER = (
@@ -67,7 +69,7 @@ def answer_question(
     result, latency = timed(lambda: (agent or build_answer_agent(model)).run_sync(prompt))
     if isinstance(result, Exception):
         log.warning("answer failed (%s: %s)", type(result).__name__, result)
-        _trace(model, prompt, repr(result), latency, guard="exception")
+        record_call(KIND, model, prompt, repr(result), latency, guard="exception")
         return Answer(text=FALLBACK_ANSWER, source="report")
     answer: Answer = result.output
     output = answer.model_dump_json()
@@ -76,14 +78,14 @@ def answer_question(
     bad = unknown_numbers_in_text(answer.text, f"{facts}\nQUESTION: {question}")
     if bad:
         log.warning("answer used numbers not in the facts %s", bad)
-        _trace(model, prompt, output, latency, guard="unknown_numbers")
+        record_call(KIND, model, prompt, output, latency, guard="unknown_numbers")
         return Answer(text=FALLBACK_ANSWER, source="report")
     causal = banned_phrases(answer.text)
     if causal:
         log.warning("answer used causal wording %s", causal)
-        _trace(model, prompt, output, latency, guard="banned_phrase")
+        record_call(KIND, model, prompt, output, latency, guard="banned_phrase")
         return Answer(text=FALLBACK_ANSWER, source="report")
-    _trace(model, prompt, output, latency, guard=None)
+    record_call(KIND, model, prompt, output, latency, guard=None)
     return answer
 
 
@@ -94,19 +96,3 @@ def _prompt(question: str, facts: str, history: Sequence[tuple[str, str]]) -> st
         lines.append("CONVERSATION:\n" + "\n".join(f"{role}: {text}" for role, text in recent))
     lines.append(f"QUESTION: {question.strip()}")
     return "\n\n".join(lines)
-
-
-def _trace(model: str, prompt: str, output: str, latency: int, *, guard: Guard | None) -> None:
-    record(
-        LlmCall(
-            kind="answer",
-            model=model,
-            input=prompt,
-            output=output,
-            ok=guard is None,
-            guard=guard,
-            fallback=guard is not None,
-            latency_ms=latency,
-            ts=now_iso(),
-        )
-    )

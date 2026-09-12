@@ -7,18 +7,15 @@ uv run python cli.py investigate 2024-01-05T19:00 --no-llm --charts out/
 
 import argparse
 import logging
+from datetime import date
 from pathlib import Path
 
-import pandas as pd
-
-from copilot.config import load_settings
-from copilot.investigate import HISTORY_DAYS, investigate_at, load_window, scan, window_for
+from copilot.config import TZ, load_settings
+from copilot.investigate import investigate_at, load_window, scan, scan_window, window_for
 from copilot.llm import narrate
 from copilot.plots import all_figures
 from copilot.report import Narrative, fallback_narrative, format_number, render_facts
-from copilot.timeutil import helsinki, ts
-
-TZ = "Europe/Helsinki"
+from copilot.timeutil import helsinki
 
 
 def cmd_investigate(when: str, *, use_llm: bool, charts: Path | None) -> None:
@@ -41,13 +38,7 @@ def cmd_investigate(when: str, *, use_llm: bool, charts: Path | None) -> None:
 
 def cmd_scan(start: str, end: str, *, top_n: int) -> None:
     settings = load_settings()
-    # +1 day: `helsinki(end)` is midnight at the *start* of the end day and the window is
-    # half-open, so without this the last day of the range is never looked at.
-    frame = load_window(
-        settings,
-        ts(helsinki(start) - pd.Timedelta(days=HISTORY_DAYS)),
-        ts(helsinki(end) + pd.Timedelta(days=1)),
-    )
+    frame = load_window(settings, *scan_window(date.fromisoformat(start), date.fromisoformat(end)))
     events = scan(frame, top_n=top_n, since=helsinki(start))
     if not events:
         print("No abnormal hours found in that range.")

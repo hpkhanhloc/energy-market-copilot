@@ -7,8 +7,9 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
-HELSINKI = ZoneInfo("Europe/Helsinki")
-UTC = ZoneInfo("UTC")
+TZ = "Europe/Helsinki"
+"""Display time zone. Data is stored in UTC; every label and date uses this."""
+HELSINKI = ZoneInfo(TZ)
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MODEL = "anthropic:claude-sonnet-5"
 

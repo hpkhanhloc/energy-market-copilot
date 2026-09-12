@@ -15,15 +15,17 @@ from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent
 
+from copilot.investigate import HISTORY_DAYS
 from copilot.report import banned_phrases, unknown_numbers_in_text
 from copilot.timeutil import helsinki
-from copilot.trace import Guard, LlmCall, now_iso, record, timed
+from copilot.trace import Guard, record_call, timed
 
 log = logging.getLogger(__name__)
 
+KIND = "intent"
+
 MAX_SCAN_DAYS = 60  # for ranges that need a network fetch
 MAX_CACHED_SCAN_DAYS = 366  # every month already on disk: reading parquet is cheap
-HISTORY_DAYS = 30  # same-hour baseline needs this much history before any requested day
 TRANSCRIPT_LINES = 6
 FALLBACK_TEXT = (
     "I could not read that. Try: 'what happened on 5 Jan 2024 at 19:00' or "
@@ -179,7 +181,7 @@ def parse_intent(
     result, latency = timed(lambda: (agent or build_intent_agent(model)).run_sync(prompt))
     if isinstance(result, Exception):
         log.warning("intent parsing failed (%s: %s)", type(result).__name__, result)
-        _trace(model, prompt, repr(result), latency, guard="exception")
+        record_call(KIND, model, prompt, repr(result), latency, guard="exception")
         return Reply(text=FALLBACK_TEXT)
     intent: Intent = result.output
     guard: Guard | None = None
@@ -192,9 +194,9 @@ def parse_intent(
             guard = "banned_phrase"
         if guard:
             log.warning("routing reply failed guard %s: %r", guard, intent.text)
-            _trace(model, prompt, intent.model_dump_json(), latency, guard=guard)
+            record_call(KIND, model, prompt, intent.model_dump_json(), latency, guard=guard)
             return Reply(text=SCOPE_TEXT)
-    _trace(model, prompt, intent.model_dump_json(), latency, guard=None)
+    record_call(KIND, model, prompt, intent.model_dump_json(), latency, guard=None)
     return intent
 
 
@@ -229,19 +231,3 @@ def guard_intent(intent: Intent, ctx: Context, *, max_days: int = MAX_SCAN_DAYS)
             return intent
         case _:
             return intent
-
-
-def _trace(model: str, prompt: str, output: str, latency: int, *, guard: Guard | None) -> None:
-    record(
-        LlmCall(
-            kind="intent",
-            model=model,
-            input=prompt,
-            output=output,
-            ok=guard is None,
-            guard=guard,
-            fallback=guard is not None,
-            latency_ms=latency,
-            ts=now_iso(),
-        )
-    )

@@ -2,6 +2,8 @@
 
 import pandas as pd
 
+from copilot.config import TZ
+
 
 def ts(value: object, tz: str = "UTC") -> pd.Timestamp:
     """Parse to a tz-aware Timestamp. Naive input is localized to `tz`; aware input is kept."""
@@ -17,7 +19,7 @@ def ts(value: object, tz: str = "UTC") -> pd.Timestamp:
 
 def helsinki(value: object) -> pd.Timestamp:
     """Parse to a Timestamp in Europe/Helsinki (localizing naive input to Helsinki)."""
-    return ts(value, tz="Europe/Helsinki").tz_convert("Europe/Helsinki")
+    return ts(value, tz=TZ).tz_convert(TZ)
 
 
 def to_utc(value: pd.Timestamp) -> pd.Timestamp:

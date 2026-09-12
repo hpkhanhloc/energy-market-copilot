@@ -85,3 +85,21 @@ def test_last_call_skips_a_truncated_or_foreign_line(tmp_path: Path) -> None:
     assert last.kind == "narrative"
     path.write_text("not json at all\n")
     assert last_call(path) is None
+
+
+def test_record_call_derives_ok_and_fallback(tmp_path: Path, monkeypatch) -> None:
+    from copilot.trace import record_call
+
+    monkeypatch.setenv("COPILOT_TRACE", str(tmp_path / "t.jsonl"))
+    record_call("intent", "m", "p", "o", 5, guard=None)
+    call = last_call()
+    assert call is not None
+    assert (call.ok, call.fallback) == (True, False)
+    record_call("answer", "m", "p", "o", 5, guard="banned_phrase")
+    call = last_call()
+    assert call is not None
+    assert (call.ok, call.fallback) == (False, True)
+    record_call("narrative", "m", "p", "o", 5, guard="invented_hypotheses", fallback=False)
+    call = last_call()
+    assert call is not None
+    assert (call.ok, call.guard, call.fallback) == (False, "invented_hypotheses", False)

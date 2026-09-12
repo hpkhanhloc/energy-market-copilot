@@ -4,7 +4,7 @@ A turn is a dict: {"role": "user"|"assistant", "kind": "text"|"scan"|"investigat
 Every rerun re-renders the stored turns; nothing is recomputed.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date
 from functools import partial
 from typing import Any
 from uuid import uuid4
@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from copilot.chat import answer_question
-from copilot.config import Settings
+from copilot.config import TZ, Settings
 from copilot.data.frame import MarketFrame
 from copilot.detect import Event, EventKind
 from copilot.drivers.base import Verdict
@@ -29,14 +29,19 @@ from copilot.intent import (
     guard_intent,
     parse_intent,
 )
-from copilot.investigate import Investigation, investigate_at, load_window, scan, window_for
+from copilot.investigate import (
+    Investigation,
+    investigate_at,
+    load_window,
+    scan,
+    scan_window,
+    window_for,
+)
 from copilot.llm import narrate
 from copilot.plots import all_figures
 from copilot.report import Narrative, fallback_narrative, format_number, render_facts
-from copilot.timeutil import helsinki, ts
+from copilot.timeutil import helsinki
 
-TZ = "Europe/Helsinki"
-HISTORY_DAYS = 30  # fetched before a scan range so the baseline exists on day one
 MAX_TURNS = 30
 KIND_WORD = {
     EventKind.SPIKE: "Price spike",
@@ -76,8 +81,8 @@ GLOSSARY = {
 # Starter chips map straight to intents, skipping the routing call. The narrative call still
 # runs when the sidebar toggle is on; with no key it falls back to the code-written text.
 STARTERS: dict[str, Intent] = {
-    "Spike on 5 Jan 2024 19:00": Investigate(when=datetime(2024, 1, 5, 19)),  # noqa: DTZ001
-    "Negative night 16 Dec 2023": Investigate(when=datetime(2023, 12, 16, 19)),  # noqa: DTZ001
+    "Spike on 5 Jan 2024 19:00": Investigate(when=helsinki("2024-01-05 19:00").to_pydatetime()),
+    "Negative night 16 Dec 2023": Investigate(when=helsinki("2023-12-16 19:00").to_pydatetime()),
     "Odd hours 8 Dec 2023 to 8 Jan 2024": Scan(start=date(2023, 12, 8), end=date(2024, 1, 8)),
 }
 NOTHING_YET = "Nothing investigated yet. Ask me to explain an hour first, or pick a starter above."
@@ -205,11 +210,8 @@ def handle_intent(intent: Intent, settings: Settings, *, ai: bool) -> None:
 
 
 def run_scan(start: date, end: date) -> dict[str, Any]:
-    since = helsinki(str(start))
-    frame = window(
-        ts(since - pd.Timedelta(days=HISTORY_DAYS)), helsinki(str(end + timedelta(days=1)))
-    )
-    events = scan(frame, top_n=10, since=since)
+    frame = window(*scan_window(start, end))
+    events = scan(frame, top_n=10, since=helsinki(str(start)))
     return {"role": "assistant", "kind": "scan", "start": start, "end": end, "events": events}
 
 

@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -9,8 +10,8 @@ from copilot.config import Settings
 from copilot.data.frame import MarketFrame, build_market_frame
 from copilot.data.sources import entsoe_source, fingrid_source
 from copilot.detect import DetectConfig, Event, event_at, find_events
-from copilot.drivers import DriverResult, run_all
-from copilot.timeutil import to_utc, ts
+from copilot.drivers import DriverResult, Verdict, run_all
+from copilot.timeutil import helsinki, to_utc, ts
 
 log = logging.getLogger(__name__)
 
@@ -30,12 +31,10 @@ class Investigation:
     event: Event
     frame: MarketFrame
     results: list[DriverResult]
-    window_start: pd.Timestamp
-    window_end: pd.Timestamp
 
     @property
     def supporting(self) -> list[DriverResult]:
-        return [r for r in self.results if r.verdict == "supports"]
+        return [r for r in self.results if r.verdict is Verdict.SUPPORTS]
 
     @property
     def missing_data(self) -> tuple[str, ...]:
@@ -50,8 +49,21 @@ def load_window(settings: Settings, start: pd.Timestamp, end: pd.Timestamp) -> M
 
 
 def window_for(when: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Fetch window for one hour: HISTORY_DAYS before its UTC day, AFTER_DAYS after."""
     day = to_utc(when).floor("D")
     return ts(day - pd.Timedelta(days=HISTORY_DAYS)), ts(day + pd.Timedelta(days=AFTER_DAYS))
+
+
+def scan_window(start: date, end: date) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Fetch window for a scan over Helsinki calendar days [start, end], inclusive.
+
+    HISTORY_DAYS before `start` so the baseline exists on day one; `end` + 1 day because
+    `helsinki(end)` is midnight at the start of that day and the window is half-open.
+    """
+    return (
+        ts(helsinki(str(start)) - pd.Timedelta(days=HISTORY_DAYS)),
+        helsinki(str(end + timedelta(days=1))),
+    )
 
 
 def investigate_at(
@@ -60,10 +72,6 @@ def investigate_at(
     """Investigate the hour `when` (any hour; unflagged hours are still analysed)."""
     _require_price(frame)
     event = event_at(frame.data["price_fi"], when, config)
-    return _build(frame, event)
-
-
-def investigate_event(frame: MarketFrame, event: Event) -> Investigation:
     return _build(frame, event)
 
 
@@ -90,15 +98,7 @@ def scan(
 
 
 def _build(frame: MarketFrame, event: Event) -> Investigation:
-    results = run_all(frame, event)
-    index = frame.data.index
-    return Investigation(
-        event=event,
-        frame=frame,
-        results=results,
-        window_start=ts(index[0]),
-        window_end=ts(index[-1]),
-    )
+    return Investigation(event=event, frame=frame, results=run_all(frame, event))
 
 
 def _require_price(frame: MarketFrame) -> None:

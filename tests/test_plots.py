@@ -100,13 +100,7 @@ def test_driver_figures(investigation: Investigation) -> None:
 def test_driver_figure_none_when_no_columns(investigation: Investigation) -> None:
     result = next(r for r in investigation.results if r.name == "nuclear")
     frame = MarketFrame(data=investigation.frame.data.drop(columns=["nuclear"]))
-    inv = Investigation(
-        event=investigation.event,
-        frame=frame,
-        results=investigation.results,
-        window_start=investigation.window_start,
-        window_end=investigation.window_end,
-    )
+    inv = Investigation(event=investigation.event, frame=frame, results=investigation.results)
     assert driver_figure(inv, result) is None
 
 

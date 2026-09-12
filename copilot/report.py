@@ -12,13 +12,12 @@ from collections.abc import Iterable
 import pandas as pd
 from pydantic import BaseModel, Field
 
+from copilot.config import TZ
 from copilot.detect import EventKind
 from copilot.drivers.base import Verdict
 from copilot.investigate import Investigation
 
 log = logging.getLogger(__name__)
-
-TZ = "Europe/Helsinki"
 
 KIND_TEXT = {
     EventKind.SPIKE: "price spike",
@@ -101,7 +100,7 @@ def render_facts(inv: Investigation) -> str:
 def fallback_narrative(inv: Investigation) -> Narrative:
     """No LLM: build the narrative from the driver results directly."""
     e = inv.event
-    supporting = [r for r in inv.results if r.verdict is Verdict.SUPPORTS]
+    supporting = inv.supporting
     lead = ", ".join(r.title.lower() for r in supporting[:3]) or "none of the checked drivers"
     baseline = (
         "" if not e.has_baseline else f" against a baseline of {e.baseline_median:,.0f} EUR/MWh"
@@ -185,7 +184,7 @@ BANNED_RE = re.compile(r"\b(?:" + "|".join(BANNED) + r")\b", re.IGNORECASE)
 def unknown_numbers(narrative: Narrative, facts: str) -> list[str]:
     """Numbers in the narrative that do not appear in the facts text (possible hallucinations)."""
     found: list[str] = []
-    for text in _texts(narrative):
+    for text in narrative_texts(narrative):
         found.extend(unknown_numbers_in_text(text, facts))
     return found
 
@@ -257,7 +256,8 @@ def _count_numbers(text: str) -> set[str]:
     }
 
 
-def _texts(narrative: Narrative) -> Iterable[str]:
+def narrative_texts(narrative: Narrative) -> Iterable[str]:
+    """Every string in a Narrative, for guards that check all of them the same way."""
     yield narrative.summary
     yield from narrative.facts
     yield from narrative.hypotheses
