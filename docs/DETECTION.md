@@ -63,31 +63,70 @@ sits from that baseline). An hour is abnormal if **any one** of three rules hits
 (z >= 4 or z <= -4), *and* the move is big in euros too.
 
 - Spike (price above normal): the move must be at least 50 EUR/MWh.
-- Crash (price below normal): 50 EUR/MWh also works, *or* the price lost at least half its
-  baseline and at least 10 EUR/MWh. Why the second option: a spike can go up forever, but a
-  crash cannot go below zero. 40 to 3 EUR/MWh is only a 37 EUR move, yet it is a 93% collapse.
-  The 10 EUR minimum stops "half the baseline" from meaning "half of nothing" when normal is
-  already tiny.
+- Crash (price below normal): 50 EUR/MWh passes, *or* the drop clears a smaller two-part test:
+  at least half the baseline **and** at least 10 EUR/MWh.
+  - Why a second way in: a spike can run to any height, but a crash has a floor at zero, so the
+    same 50 EUR gate is much harder to reach on the way down. A cheap hour falling from 40 to
+    3 EUR/MWh moves only 37 EUR and misses the gate, yet the price lost 93% of itself. That is
+    worth explaining.
+  - Why the 10 EUR part: on its own, "half the baseline" means nothing when the baseline is
+    already tiny. Half of a 2 EUR/MWh normal is 1 EUR/MWh, so a 1.50 EUR wiggle on a calm
+    summer night would be reported as a crash. The 10 EUR minimum keeps those out.
 
 **Rule 2: zero or below.** Price at or below 0 EUR/MWh. Always flagged, even with no history.
 Negative prices are always worth explaining.
 
-**Rule 3: sudden jump.** The price moved at least 100 EUR/MWh from the previous hour, *more than
-the baseline itself moves* between those two hours, *and* the move took the price further away
-from normal.
+**Rule 3: sudden jump.** From one hour to the next the price moved at least 100 EUR/MWh **more
+than the baseline itself moves** between those two hours, **and** the move took the price further
+away from normal.
 
-- "More than the baseline moves": every evening the baseline rises, say 40 to 90. A price going
-  40 to 90 is not a jump, it follows the shape. 40 to 200 is.
-- "Further away from normal": the hour after a spike falls just as steeply, but that is the
-  return to normal, so it is not a second event.
-- This rule catches jumps that Rule 1 misses, for example 10 to 150 EUR/MWh when both hours are
-  still inside their own usual fluctuation.
+- Why "more than the baseline moves": every evening the baseline climbs on its own, say 40 to
+  90 EUR/MWh. A price that goes 40 to 90 is following that shape, not jumping. A price that goes
+  40 to 200 overshoots the shape by 110 EUR/MWh, and the overshoot is the jump. Only the
+  overshoot is measured against the 100 EUR/MWh threshold, never the raw hour-to-hour move.
+- Why "further away from normal": the hour after a spike falls just as steeply, but it is landing
+  back on the baseline, not leaving it. Without this guard every spike would be reported twice,
+  the second time as a crash that never happened.
+- Why the rule exists at all: it catches jumps Rule 1 misses. A move from 10 to 150 EUR/MWh can
+  leave both hours inside their own usual fluctuation, so z never reaches 4, yet the speed of the
+  move is exactly what an analyst wants explained.
+
+Worked examples, previous hour then this hour:
+
+| Case | Baseline | Price | Beyond the baseline's move | Further from normal? | Flagged |
+|---|---|---|---|---|---|
+| Ordinary evening ramp | 40, 90 | 40, 90 | 0 | no, 0 then 0 | no |
+| Real jump | 40, 90 | 40, 200 | +110 | yes, 0 then 110 | spike |
+| Jump Rule 1 misses | 30, 45 | 10, 150 | +125 | yes, 20 then 105 | spike |
+| Fall back after a spike | 50, 55 | 300, 60 | -245 | no, 250 then 5 | no |
+
+Both hours need a baseline for this rule, so the first weeks of a series lean on Rules 1 and 2
+alone.
 
 **Episodes.** Flagged hours next to each other merge into one episode. One normal hour in
-between does not break the episode. Episodes are ranked by peak |z| times the square root of
-the length in hours, so a long event beats a one-hour blip but a violent short one still ranks
-high. Every report also states the steepest hour-to-hour move in the event's direction, for
-example +696 EUR/MWh from 15:00 to 16:00 on the cold-snap day.
+between does not break the episode. The episode's *peak hour* is its most extreme **price**, the
+dearest hour of a spike or the cheapest hour of a crash, chosen among the flagged hours only so a
+bridged normal hour can never stand for the whole episode. Every report also states the steepest
+hour-to-hour move in the event's direction, for example +696 EUR/MWh from 15:00 to 16:00 on the
+cold-snap day.
+
+**Ranking.** Episodes are sorted on three keys, compared in order. The first key that differs
+decides, so the ones below it only ever break a tie.
+
+1. Does the episode have a baseline at its peak hour? Too little history means no z at all, so
+   the episode cannot be scored fairly and sinks to the bottom of the list.
+2. Severity: the peak hour's |z| times the square root of the episode's length in hours.
+3. Peak price, cheapest first. A tiebreaker, so the deepest negative episode wins a tie.
+
+- Why the square root: length should count, but not rule. Multiply by the hours straight and a
+  long lukewarm stretch buries a violent single hour. The square root grows slowly, so 13 hours
+  multiplies severity by 3.6 rather than by 13. That is why the one-hour 2024-01-05 cold snap
+  still ranks 2 of 601 while the 13-hour windy night ranks 232 on its mild z.
+- Why the peak hour's z and not the episode's average: an episode is worth reading about because
+  of its worst hour. Averaging would punish a spike for the calm hours merged in around it.
+- What ranking ignores: the price level itself, except in the tiebreaker. Distance from that
+  hour's own normal is the whole story. 400 EUR/MWh against a 350 EUR/MWh baseline is an ordinary
+  evening; 40 EUR/MWh against a 2 EUR/MWh baseline is not.
 
 ## Backtest: `make backtest`
 
