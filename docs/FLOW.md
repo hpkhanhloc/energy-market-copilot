@@ -29,10 +29,10 @@ Every fetch, whether for a scan or an investigation, goes through `build_market_
 ```mermaid
 flowchart TD
     LW["load_window(start, end)<br/>copilot/investigate.py"] --> BF["build_market_frame<br/>copilot/data/frame.py"]
-    BF --> J["_jobs: one job per series<br/>13 ENTSO-E + 8 Fingrid"]
+    BF --> J["_jobs: one job per series<br/>13 ENTSO-E + 4 Fingrid"]
     J --> P[ThreadPoolExecutor, all jobs in parallel]
     P --> E["EntsoeSource<br/>price FI + SE1 SE3 EE NO4, load, load forecast,<br/>generation by type, 4 border flows, wind forecast"]
-    P --> F["FingridSource<br/>wind, nuclear, hydro, production,<br/>consumption, forecasts, imbalance price"]
+    P --> F["FingridSource<br/>wind, wind forecast,<br/>nuclear, consumption"]
     E --> CR["cached_range<br/>copilot/data/cache.py"]
     F --> CR
     CR --> M{"parquet for this month<br/>on disk and fresh?<br/>(old months never expire,<br/>current month does)"}

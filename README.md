@@ -17,9 +17,9 @@ neighbours), so a first version can be judged right or wrong.
 **Two investigations work end to end:** **5 Jan 2024 19:00** (1,896 EUR/MWh, a cold snap) and
 the night of **16 to 17 Dec 2023** (13 hours at or below 0 EUR/MWh, a windy weekend).
 
-**Left out on purpose:** imbalance and balancing prices (fetched and cached, no drivers yet),
-outages, weather as a direct input, intraday, anything beyond Finland's four borders. No cloud,
-no auth, no styling.
+**Left out on purpose:** imbalance and balancing prices (the Fingrid client covers the dataset,
+no drivers yet), outages, weather as a direct input, intraday, anything beyond Finland's four
+borders. No cloud, no auth, no styling.
 
 ## Try it
 
@@ -67,17 +67,16 @@ only one with anything across a border. From it: the day-ahead price for Finland
 neighbours (SE1, SE3, EE, NO4), load and load forecast, generation by type, the day-ahead wind
 forecast, and physical flows on each border. Every driver check reads ENTSO-E first.
 
-**Fingrid is the Finnish grid operator's own real-time measurements.** From it: wind, nuclear,
-hydro, total production and consumption, the consumption forecast, and the imbalance price. It
-serves three purposes today:
+**Fingrid is the Finnish grid operator's own real-time measurements.** From it: wind, the wind
+forecast, nuclear, and consumption. It serves three purposes today:
 
 - *Fallback.* When ENTSO-E's generation-by-type feed has no wind or nuclear for the window (a
   failed call, or a gap in the feed), the wind, nuclear and residual-load checks use the Fingrid
   series instead. The chart legend says which one was used.
 - *Charts.* The Fingrid series are plotted next to the ENTSO-E ones so the analyst can see
   whether the two agree.
-- *Next use case.* The imbalance price is already cached for the imbalance investigation listed
-  under "what I would build next".
+- *Next use case.* The client already knows the imbalance-price dataset, ready for the imbalance
+  investigation listed under "what I would build next".
 
 Everything is hourly, stored in UTC, shown in Helsinki time. A source that is missing (no key,
 API down) leaves its columns out and the drivers that need them say "not enough data".
@@ -174,8 +173,8 @@ that file would give guard rate and latency per call type.
 
 1. **Outages driver (ENTSO-E):** the one signal an analyst always checks, and the usual reason
    for "nuclear looks fine but the price is high".
-2. **Imbalance price use case:** data already cached from Fingrid; same driver pattern,
-   starting with forecast-versus-actual wind and how much backup power Fingrid had to switch
-   on.
+2. **Imbalance price use case:** the Fingrid client already covers the dataset; same driver
+   pattern, starting with forecast-versus-actual wind and how much backup power Fingrid had to
+   switch on.
 3. **Feedback capture in the app:** one click per investigation for "right / wrong / missing
    driver". Without it the product metrics above cannot be measured.
